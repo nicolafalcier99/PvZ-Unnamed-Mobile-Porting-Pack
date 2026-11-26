@@ -19,6 +19,7 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Layout.h" // PVZU
 #include "Trail.h"
 #include "PvzpDebug.h"
 #include "Attachment.h"
@@ -403,7 +404,7 @@ void PvzpTriangleGroup::DrawGroup(Graphics* g)
 		}
 		else
 		{
-			g->mDestImage->BltTrianglesTex(mImage, mVertArray, mTriangleCount, Rect(0, 0, BOARD_WIDTH, BOARD_HEIGHT), Color::White, mDrawMode, 0.0f, 0.0f, g->mLinearBlend);
+			g->mDestImage->BltTrianglesTex(mImage, mVertArray, mTriangleCount, Rect(0, 0, pvzu::CurrentLayout().width, BOARD_HEIGHT), Color::White, mDrawMode, 0.0f, 0.0f, g->mLinearBlend); // PVZU
 		}
 
 		mTriangleCount = 0;
@@ -458,7 +459,7 @@ void PvzpTriangleGroup::AddTriangle(Graphics* g, Image* theImage, const SexyMatr
 	if (mTriangleCount + 2 <= MAX_TRIANGLES)
 	{
 		if ((
-				theClipRect.mX == 0 && theClipRect.mY == 0 && theClipRect.mWidth == BOARD_WIDTH && theClipRect.mHeight == BOARD_HEIGHT && gSexyAppBase->Is3DAccelerated()
+				theClipRect.mX == 0 && theClipRect.mY == 0 && theClipRect.mWidth == pvzu::CurrentLayout().width && theClipRect.mHeight == BOARD_HEIGHT && gSexyAppBase->Is3DAccelerated() // PVZU
 			) || (
 				theClipRect.mX <= tp[0].x && theClipRect.mX + theClipRect.mWidth >= tp[0].x &&
 				theClipRect.mX <= tp[1].x && theClipRect.mX + theClipRect.mWidth >= tp[1].x &&

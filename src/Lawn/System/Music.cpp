@@ -27,6 +27,7 @@
 #include "../../PvzpLib/PvzpDebug.h"
 #include "../../PvzpLib/PvzpCommon.h"
 #include "sound/MusicInterface.h"
+#include "Mod/Engine/UnnamedMusic.h"
 
 #include <vector>
 
@@ -221,6 +222,8 @@ void Music::PlayMusic(MusicTune theMusicTune, int theOffset, int theDrumsOffset)
 {
 	if (mMusicDisabled)
 		return;
+	if (pvzu::engine::PlayUnnamedMusic(*this, theMusicTune)) // PVZU: Unnamed lawnbgm(N).mp3 (gdi42 detour at 0x45adeb)
+		return;
 
 	mCurMusicTune = theMusicTune;
 	mCurMusicFileMain = MusicFile::MUSIC_FILE_NONE;
@@ -360,6 +363,8 @@ void Music::UpdateMusicBurst()
 	if (mApp->mBoard == nullptr)
 		return;
 	if (mApp->mGameMode == GameMode::GAMEMODE_INTRO)
+		return;
+	if (pvzu::engine::IsUnnamedMusicFile(mCurMusicFileMain)) // PVZU: an Unnamed mp3 has no drum/burst layers
 		return;
 
 	int aBurstScheme;
@@ -532,6 +537,7 @@ void Music::MusicUpdate()
 	{
 		UpdateMusicBurst();
 	}
+	pvzu::engine::UnnamedMusicTick(*this); // PVZU: -pvzu-log-music position line (no game effect)
 }
 
 void Music::MakeSureMusicIsPlaying(MusicTune theMusicTune)
@@ -547,6 +553,8 @@ void Music::StartGameMusic()
 {
 	PVZP_ASSERT(mApp->mBoard);
 
+	if (pvzu::engine::UnnamedStartGameMusic(*this)) // PVZU: Unnamed tune choice (hook 258 Adventure 71-80, the music choice)
+		return;
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN || mApp->mGameMode == GameMode::GAMEMODE_TREE_OF_WISDOM)
 		MakeSureMusicIsPlaying(MusicTune::MUSIC_TUNE_ZEN_GARDEN);
 	else if (mApp->IsFinalBossLevel())

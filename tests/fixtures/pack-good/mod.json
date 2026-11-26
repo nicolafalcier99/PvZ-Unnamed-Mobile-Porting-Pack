@@ -1,0 +1,1 @@
+{ "id": "test-good", "name": "Test pack", "version": "1", "features": { "potatoInstantArm": true } }

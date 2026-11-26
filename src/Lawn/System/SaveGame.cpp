@@ -19,6 +19,11 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Mode.h" // PVZU
+#include "Mod/SeedSlots.h" // PVZU
+#include "Mod/Engine/EliteZombies.h" // PVZU
+#include "Mod/Engine/PoolEliteZombies.h" // PVZU
+#include "Mod/Engine/FogEliteZombies.h" // PVZU
 #include "Music.h"
 #include "SaveGame.h"
 #include "../Board.h"
@@ -36,6 +41,7 @@
 #include "../../PvzpLib/PvzpParticle.h"
 #include "../../PvzpLib/EffectSystem.h"
 #include "../../PvzpLib/DataArray.h"
+#include "Mod/Capacity.h" // PVZU
 #include "../../PvzpLib/PvzpList.h"
 #include "DataSync.h"
 #include "misc/Buffer.h"
@@ -89,7 +95,13 @@ enum SaveChunkTypeV4
 	SAVE4_CHUNK_SEEDBANK = 17,
 	SAVE4_CHUNK_SEEDPACKETS = 18,
 	SAVE4_CHUNK_CHALLENGE = 19,
-	SAVE4_CHUNK_MUSIC = 20
+	SAVE4_CHUNK_MUSIC = 20,
+	// PVZU: seed packets 11-15 (Unnamed sells 15 slots); written only for a bank of more than 10, so vanilla saves
+	// stay byte-identical and upstream builds skip it as an unknown chunk.
+	SAVE4_CHUNK_PVZU_SEEDPACKETS = 0x50565A53U, // "PVZS"
+	// PVZU: board-wide Unnamed state (pvzu::unnamed::BoardState: the ice-head Jack's plant freeze); written only while
+	// it is not the default, so vanilla and ordinary saves stay byte-identical.
+	SAVE4_CHUNK_PVZU_BOARD = 0x50565A42U // "PVZB"
 };
 
 static constexpr const uint32_t SAVE4_CHUNK_VERSION = 1U;
@@ -544,6 +556,7 @@ static void SyncGameObjectPortable(PortableSaveContext& theContext, GameObject& 
 }
 
 static constexpr const uint32_t PORTABLE_FIELD_TAIL = 100U;
+static constexpr const uint32_t PORTABLE_FIELD_PVZU = 0x50565A55U; // PVZU: "PVZU" Unnamed per-object state; unknown to upstream (skipped)
 
 template <typename TEnum>
 static void SyncEnum32(PortableSaveContext& theContext, TEnum& theValue)
@@ -1369,7 +1382,7 @@ static void SyncDataArrayPortable(PortableSaveContext& theContext, DataArray<T>&
 	theContext.SyncUInt32(theDataArray.mNextKey);
 	uint32_t aMaxSize = theDataArray.mMaxSize;
 	theContext.SyncUInt32(aMaxSize);
-	if (theContext.mReading && aMaxSize != theDataArray.mMaxSize)
+	if (theContext.mReading && !pvzu::SavedArraySizeLoadable(aMaxSize, theDataArray.mMaxSize)) // PVZU: older saves have smaller pools
 	{
 		theContext.mFailed = true;
 	}
@@ -1390,7 +1403,7 @@ static void SyncDataArrayIdsOnlyPortable(PortableSaveContext& theContext, DataAr
 	theContext.SyncUInt32(theDataArray.mNextKey);
 	uint32_t aMaxSize = theDataArray.mMaxSize;
 	theContext.SyncUInt32(aMaxSize);
-	if (theContext.mReading && aMaxSize != theDataArray.mMaxSize)
+	if (theContext.mReading && !pvzu::SavedArraySizeLoadable(aMaxSize, theDataArray.mMaxSize)) // PVZU: older saves have smaller pools
 	{
 		theContext.mFailed = true;
 	}
@@ -1410,7 +1423,7 @@ static void SyncDataArrayPortableTLV(PortableSaveContext& theContext, DataArray<
 	theContext.SyncUInt32(theDataArray.mNextKey);
 	uint32_t aMaxSize = theDataArray.mMaxSize;
 	theContext.SyncUInt32(aMaxSize);
-	if (theContext.mReading && aMaxSize != theDataArray.mMaxSize)
+	if (theContext.mReading && !pvzu::SavedArraySizeLoadable(aMaxSize, theDataArray.mMaxSize)) // PVZU: older saves have smaller pools
 	{
 		theContext.mFailed = true;
 	}
@@ -1467,6 +1480,14 @@ static void SyncDataArrayObjectsTLV(PortableSaveContext& theContext, DataArray<T
 			if constexpr (std::is_base_of_v<GameObject, T>)
 				WriteGameObjectField(aOut, 1U, anItem);
 			AppendFieldWithSync(aOut, PORTABLE_FIELD_TAIL, [&](PortableSaveContext& c){ theTailSync(c, anItem); });
+			if constexpr (requires { anItem.mPvzu; }) // PVZU: only Plant/Zombie/Projectile/GridItem, only in Unnamed mode (vanilla saves stay byte-identical)
+			{
+				if (pvzu::CurrentMode() == pvzu::GameMode::Unnamed)
+				{
+					std::vector<uint8_t> aState = pvzu::unnamed::Encode(anItem.mPvzu);
+					AppendFieldWithSync(aOut, PORTABLE_FIELD_PVZU, [&](PortableSaveContext& c){ c.SyncBytes(aState.data(), static_cast<uint32_t>(aState.size())); });
+				}
+			}
 		},
 		[&](uint32_t aFieldId, const uint8_t* aData, size_t aSize, T& anItem)
 		{
@@ -1478,6 +1499,10 @@ static void SyncDataArrayObjectsTLV(PortableSaveContext& theContext, DataArray<T
 				break;
 			case PORTABLE_FIELD_TAIL:
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ theTailSync(c, anItem); });
+				break;
+			case PORTABLE_FIELD_PVZU: // PVZU
+				if constexpr (requires { anItem.mPvzu; })
+					pvzu::unnamed::Decode(aData, aSize, anItem.mPvzu);
 				break;
 			default: break;
 			}
@@ -1880,11 +1905,12 @@ static void SyncSeedBankPortable(PortableSaveContext& theContext, Board* theBoar
 	SyncSingleObjectTLV(theContext, *theBoard->mSeedBank, SyncSeedBankTailPortable);
 }
 
-static void SyncSeedPacketsPortable(PortableSaveContext& theContext, Board* theBoard)
+// PVZU: packets [theFirst, theFirst + count): the vanilla chunk holds 0-9 (count 10, as upstream writes it), ours the rest.
+static void SyncSeedPacketRangePortable(PortableSaveContext& theContext, Board* theBoard, int theFirst, int theWriteCount)
 {
-	int aCount = SEEDBANK_MAX;
+	int aCount = theWriteCount;
 	theContext.SyncInt32(aCount);
-	for (int i = 0; i < aCount && i < SEEDBANK_MAX; i++)
+	for (int i = theFirst; i - theFirst < aCount && i < SEEDBANK_MAX; i++)
 	{
 		if (theContext.mReading)
 		{
@@ -1923,6 +1949,30 @@ static void SyncSeedPacketsPortable(PortableSaveContext& theContext, Board* theB
 				theContext.SyncBytes(aItemData.data(), aItemSize);
 		}
 	}
+}
+
+static void SyncSeedPacketsPortable(PortableSaveContext& theContext, Board* theBoard)
+{
+	SyncSeedPacketRangePortable(theContext, theBoard, 0, pvzu::kSavedPacketsInVanillaChunk);
+}
+
+static void SyncPvzuBoardPortable(PortableSaveContext& theContext, Board* theBoard) // PVZU
+{
+	std::vector<uint8_t> aBlob;
+	if (theContext.mReading)
+	{
+		if (ReadTLVBlob(theContext, aBlob))
+			pvzu::unnamed::Decode(aBlob.data(), aBlob.size(), theBoard->mPvzuState);
+	}
+	else
+	{
+		WriteTLVBlob(theContext, pvzu::unnamed::Encode(theBoard->mPvzuState));
+	}
+}
+
+static void SyncSeedPacketsExtraPortable(PortableSaveContext& theContext, Board* theBoard) // PVZU
+{
+	SyncSeedPacketRangePortable(theContext, theBoard, pvzu::kSavedPacketsInVanillaChunk, pvzu::ExtraPacketsToSave(theBoard->mSeedBank->mNumPackets));
 }
 
 static void SyncChallengePortable(PortableSaveContext& theContext, Board* theBoard)
@@ -2006,6 +2056,10 @@ static ChunkSyncFn GetChunkSyncFn(uint32_t theChunkType)
 		return SyncChallengePortable;
 	case SAVE4_CHUNK_MUSIC:
 		return SyncMusicPortable;
+	case SAVE4_CHUNK_PVZU_SEEDPACKETS: // PVZU
+		return SyncSeedPacketsExtraPortable;
+	case SAVE4_CHUNK_PVZU_BOARD: // PVZU
+		return SyncPvzuBoardPortable;
 	default:
 		return nullptr;
 	}
@@ -2081,11 +2135,13 @@ static bool ReadChunkV4(uint32_t theChunkType, const uint8_t* theData, size_t th
 
 static void FixBoardAfterLoad(Board* theBoard)
 {
+	pvzu::engine::FogBoardAfterLoad(theBoard); // PVZU: logs a running ice-head freeze (the state itself is chunk "PVZB")
 	{
 		for (Plant* aPlant : theBoard->mPlants)
 		{
 			aPlant->mApp = theBoard->mApp;
 			aPlant->mBoard = theBoard;
+			pvzu::engine::PoolPlantAfterLoad(aPlant); // PVZU: Zomboni-frozen look (the flag itself is in the save)
 		}
 	}
 	{
@@ -2093,6 +2149,7 @@ static void FixBoardAfterLoad(Board* theBoard)
 		{
 			aZombie->mApp = theBoard->mApp;
 			aZombie->mBoard = theBoard;
+			pvzu::engine::EliteAfterLoad(aZombie); // PVZU: elite art images outside the resource table are not saved
 
 			switch (aZombie->mZombieType)
 			{
@@ -2811,6 +2868,10 @@ bool LawnSaveGame(Board* theBoard, const std::string& theFilePath)
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_ADVICE, theBoard)) return false;
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_SEEDBANK, theBoard)) return false;
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_SEEDPACKETS, theBoard)) return false;
+	if (pvzu::ExtraPacketsToSave(theBoard->mSeedBank->mNumPackets) > 0) // PVZU: only past 10 packets (vanilla saves unchanged)
+		if (!WriteChunkV4(aPayload, SAVE4_CHUNK_PVZU_SEEDPACKETS, theBoard)) return false;
+	if (!theBoard->mPvzuState.IsDefault()) // PVZU: only while an ice-head freeze runs (vanilla saves unchanged)
+		if (!WriteChunkV4(aPayload, SAVE4_CHUNK_PVZU_BOARD, theBoard)) return false;
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_CHALLENGE, theBoard)) return false;
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_MUSIC, theBoard)) return false;
 

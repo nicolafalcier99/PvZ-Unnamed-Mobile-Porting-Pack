@@ -19,6 +19,7 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Mode.h" // PVZU
 #include "DataSync.h"
 #include "ProfileMgr.h"
 #include "PlayerInfo.h"
@@ -90,7 +91,7 @@ void ProfileMgr::SyncState(DataSync& theSync)
 void ProfileMgr::Load()
 {
 	Buffer aBuffer;
-	std::string aFileName = GetAppDataPath("userdata/users.dat");
+	std::string aFileName = GetAppDataPath(pvzu::CurrentUserDataPath("users.dat")) /* PVZU */;
 
 	try
 	{
@@ -115,8 +116,8 @@ void ProfileMgr::Save()
 	DataSync aSync(aWriter);
 	SyncState(aSync);
 
-	MkDir(GetAppDataPath("userdata"));
-	std::string aFileName = GetAppDataPath("userdata/users.dat");
+	MkDir(GetAppDataPath(pvzu::CurrentUserDataPath("")) /* PVZU: per-mode saves */);
+	std::string aFileName = GetAppDataPath(pvzu::CurrentUserDataPath("users.dat")) /* PVZU */;
 	gSexyAppBase->WriteBytesToFile(aFileName, aWriter.GetDataPtr(), aWriter.GetDataLen());
 }
 

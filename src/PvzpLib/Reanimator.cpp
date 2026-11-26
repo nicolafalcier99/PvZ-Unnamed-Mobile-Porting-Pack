@@ -19,6 +19,9 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Capacity.h" // PVZU
+#include "Mod/Layout.h" // PVZU
+#include "Mod/Engine/NightEliteZombies.h" // PVZU
 #include "PvzpDebug.h"
 #include "PvzpCommon.h"
 #include "Definition.h"
@@ -222,6 +225,7 @@ bool ReanimationLoadDefinition(const std::string& theFileName, ReanimatorDefinit
 {
 	if (!DefinitionLoadXML(theFileName, &gReanimatorDefMap, theDefinition))
 		return false;
+	pvzu::engine::MergeUnnamedReanimTracks(theFileName, theDefinition); // PVZU: Unnamed-only tracks (Newspaper knife), before the fill-in
 
 	for (int aTrackIndex = 0; aTrackIndex < theDefinition->mTracks.count; aTrackIndex++)
 	{
@@ -301,7 +305,7 @@ ReanimatorTrackInstance::ReanimatorTrackInstance()
 	mIgnoreClipRect = false;
 	mImageOverride = nullptr;
 	mTruncateDisappearingFrames = true;
-	mTrackColor = Color::White;
+	mTrackColor = Color(255, 255, 255, 255); // PVZU: the Unnamed exe reads its own white (0x800134), not Color::White, which mode 0x69 changes
 	mIgnoreColorOverride = false;
 	mIgnoreExtraAdditiveColor = false;
 }
@@ -318,10 +322,10 @@ Reanimation::Reanimation()
 	mFrameCount = 0;
 	mFrameBasePose = -1;
 	mOverlayMatrix.LoadIdentity();
-	mColorOverride = Color::White;
-	mExtraAdditiveColor = Color::White;
+	mColorOverride = Color(255, 255, 255, 255); // PVZU: these three read 0x800134 in the Unnamed exe (Visual Disorder leaves reanims alone)
+	mExtraAdditiveColor = Color(255, 255, 255, 255); // PVZU
 	mEnableExtraAdditiveDraw = false;
-	mExtraOverlayColor = Color::White;
+	mExtraOverlayColor = Color(255, 255, 255, 255); // PVZU
 	mEnableExtraOverlayDraw = false;
 	mLoopCount = 0;
 	mIsAttachment = false;
@@ -684,7 +688,7 @@ bool Reanimation::DrawTrack(Graphics* g, int theTrackIndex, [[maybe_unused]] int
 	Rect aClipRect = g->mClipRect;
 	if (aTrackInstance->mIgnoreClipRect)
 	{
-		aClipRect = Rect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
+		aClipRect = Rect(0, 0, pvzu::CurrentLayout().width, BOARD_HEIGHT); // PVZU: whole wide screen
 	}
 
 	Image* aImage = aTransform.mImage;
@@ -819,7 +823,7 @@ bool Reanimation::DrawTrack(Graphics* g, int theTrackIndex, [[maybe_unused]] int
 	{
 		Color aOldColor = g->GetColor();
 		g->SetColor(aColor);
-		g->FillRect(-g->mTransX, -g->mTransY, BOARD_WIDTH, BOARD_HEIGHT);
+		g->FillRect(-g->mTransX, -g->mTransY, pvzu::CurrentLayout().width, BOARD_HEIGHT); // PVZU: whole wide screen
 		g->SetColor(aOldColor);
 	}
 	return true;
@@ -1160,7 +1164,7 @@ ReanimationHolder::~ReanimationHolder()
 
 void ReanimationHolder::InitializeHolder()
 {
-	mReanimations.DataArrayInitialize(1024U, "reanims");
+	mReanimations.DataArrayInitialize(pvzu::kEffectArrayCapacity, "reanims"); // PVZU: was 1024 (barrages overflowed it)
 }
 
 Reanimation* ReanimationHolder::AllocReanimation(float theX, float theY, int theRenderOrder, ReanimationType theReanimationType)

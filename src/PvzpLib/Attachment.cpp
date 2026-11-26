@@ -19,6 +19,8 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Capacity.h" // PVZU
+#include "Mod/Engine/ModVisuals.h" // PVZU Plan 9 L3: Sniper head aim
 #include "Trail.h"
 #include "PvzpDebug.h"
 #include "Attachment.h"
@@ -433,7 +435,7 @@ void Attachment::SetMatrix(const SexyTransform2D& theMatrix)
 		case EffectType::EFFECT_REANIM:
 		{
 			Reanimation* aReanimation = gEffectSystem->mReanimationHolder->mReanimations.DataArrayTryToGet(aAttachEffect->mEffectID);
-			if (aReanimation)
+			if (aReanimation && !pvzu::engine::ModReanimOverlay(aReanimation, aReanimation->mOverlayMatrix)) // PVZU: Unnamed Sniper head aim (hook 13)
 			{
 				aReanimation->mOverlayMatrix = aPosition;
 			}
@@ -680,7 +682,7 @@ AttachmentHolder::~AttachmentHolder()
 
 void AttachmentHolder::InitializeHolder()
 {
-	mAttachments.DataArrayInitialize(1024U, "attachments");
+	mAttachments.DataArrayInitialize(pvzu::kEffectArrayCapacity, "attachments"); // PVZU: was 1024
 }
 
 void AttachmentHolder::DisposeHolder()

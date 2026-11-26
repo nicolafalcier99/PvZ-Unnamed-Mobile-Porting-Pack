@@ -19,6 +19,8 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Mode.h" // PVZU
+#include "Mod/Engine/ModModes.h" // PVZU: mod-mode records
 #include <bit>
 #include <format>
 
@@ -217,7 +219,7 @@ void PlayerInfo::LoadDetails()
 	try
 	{
 		Buffer aBuffer;
-		std::string aFileName = GetAppDataPath(std::format("userdata/user{}.dat", mId));
+		std::string aFileName = GetAppDataPath(pvzu::CurrentUserDataPath(std::format("user{}.dat", mId))); // PVZU: per-mode saves
 		if (!gSexyAppBase->ReadBufferFromFile(aFileName, &aBuffer, false))
 		{
 			return;
@@ -227,6 +229,7 @@ void PlayerInfo::LoadDetails()
 		aReader.OpenMemory(aBuffer.GetDataPtr(), aBuffer.GetDataLen(), false);
 		DataSync aSync(aReader);
 		SyncDetails(aSync);
+		pvzu::engine::ModModeRecordsLoad(this); // PVZU: records 100..147 (Unnamed mod modes)
 	}
 	catch (DataReaderException&)
 	{
@@ -242,14 +245,15 @@ void PlayerInfo::SaveDetails()
 	DataSync aSync(aWriter);
 	SyncDetails(aSync);
 
-	MkDir(GetAppDataPath("userdata"));
-	std::string aFileName = GetAppDataPath(std::format("userdata/user{}.dat", mId));
+	MkDir(GetAppDataPath(pvzu::CurrentUserDataPath("")) /* PVZU: per-mode saves */);
+	std::string aFileName = GetAppDataPath(pvzu::CurrentUserDataPath(std::format("user{}.dat", mId))); // PVZU: per-mode saves
 	gSexyAppBase->WriteBytesToFile(aFileName, aWriter.GetDataPtr(), aWriter.GetDataLen());
+	pvzu::engine::ModModeRecordsSave(this); // PVZU: records 100..147 (Unnamed mod modes)
 }
 
 void PlayerInfo::DeleteUserFiles()
 {
-	std::string aFilename = GetAppDataPath(std::format("userdata/user{}.dat", mId));
+	std::string aFilename = GetAppDataPath(pvzu::CurrentUserDataPath(std::format("user{}.dat", mId))); // PVZU: per-mode saves
 	gSexyAppBase->EraseFile(aFilename);
 
 	for (int i = 0; i < static_cast<int>(GameMode::NUM_GAME_MODES); i++)
@@ -259,6 +263,7 @@ void PlayerInfo::DeleteUserFiles()
 		std::string aLegacyFileName = GetLegacySavedGameName((GameMode)i, mId);
 		gSexyAppBase->EraseFile(aLegacyFileName);
 	}
+	pvzu::engine::ModModeDeleteUserFiles(this); // PVZU: user<id>-modes.json and the saves of modes 101..148 (Unnamed)
 }
 
 void PlayerInfo::Reset()

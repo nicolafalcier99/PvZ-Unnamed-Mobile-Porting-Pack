@@ -19,6 +19,23 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Engine/WideScreen.h" // PVZU
+#include "Mod/Engine/EliteZombies.h" // PVZU
+#include "Mod/Engine/NightEliteZombies.h" // PVZU
+#include "Mod/Engine/EngineTables.h" // PVZU
+#include "Mod/Unnamed/DayPlants.h" // PVZU
+#include "Mod/Unnamed/PoolPlants.h" // PVZU
+#include "Mod/Unnamed/FogPlants.h" // PVZU
+#include "Mod/Engine/FogPlantSites.h" // PVZU
+#include "Mod/Engine/RoofPlantSites.h" // PVZU
+#include "Mod/Engine/SpecialLevelHooks.h" // PVZU: 7-5 star snake
+#include "Mod/Engine/Level70Boss.h" // PVZU: 7-10 ray-gun melons
+#include "Mod/Engine/ModPlantsSpecials.h" // PVZU Plan 8 part 3b: special mod-plant shots
+#include "Mod/Engine/ModPlantsShooters.h" // PVZU: mod shots (Plan 8 part 3a)
+#include "Mod/Engine/CatapultShots.h" // PVZU: Catapult vase / bug-spray hits (Plan 9 R3)
+#include "Mod/Engine/ModModes.h" // PVZU: mod-only modes 0x65..0x94
+#include "Mod/Engine/SmallRules.h" // PVZU: Plan 9 R9 small rules
+#include <format> // PVZU
 #include "Board.h"
 #include "Plant.h"
 #include "Zombie.h"
@@ -63,6 +80,7 @@ Projectile::~Projectile()
 void Projectile::ProjectileInitialize(int theX, int theY, int theRenderOrder, int theRow, ProjectileType theProjectileType)
 {
 	int aGridX = mBoard->PixelToGridXKeepOnBoard(theX, theY);
+	mPvzu = {}; // PVZU
 	mProjectileType = theProjectileType;
 	mPosX = theX;
 	mPosY = theY;
@@ -164,6 +182,10 @@ Plant* Projectile::FindCollisionTargetPlant()
 			continue;
 		if (aPlant->mRow != mRow)
 			continue;
+		if (pvzu::engine::RoofZombieShotSkips(this, aPlant)) // PVZU: Unnamed zombie shots pass over pots, Starfruit, a hiding Scaredy (hook 374)
+			continue;
+		if (aPlant->mPvzu.modSeed != 0 && pvzu::engine::ModPlantUntouchable(aPlant)) // PVZU: zombie shots and lobs miss Rewind Grass (0x7c079f, 0x7c0800)
+			continue;
 
 		if (mProjectileType == ProjectileType::PROJECTILE_ZOMBIE_PEA)
 		{
@@ -263,14 +285,22 @@ Zombie* Projectile::FindCollisionTarget()
 
 void Projectile::CheckForCollision()
 {
-	if (mMotionType == ProjectileMotion::MOTION_PUFF && mProjectileAge >= 75)
+	pvzu::engine::StarCollisionScope aPvzuStarScope(this); // PVZU: Die() in here is the exe's "ebp == esi" Die a star lives through (0x6511e3)
+	const bool aPvzuYoung = pvzu::engine::ModModeCarnivalYoung(this); // PVZU: mod mode 0x8b, no early deaths under 300 cs (hook 376)
+	if (mMotionType == ProjectileMotion::MOTION_PUFF && mProjectileAge >= 75 && !aPvzuYoung)
 	{
 		Die();
 		return;
 	}
 
-	if (mPosX > WIDE_BOARD_WIDTH || mPosX + mWidth < 0.0f)
+	const float aMaxX = pvzu::engine::ProjectileMaxX(WIDE_BOARD_WIDTH); // PVZU: Unnamed 1068 (hook 377), vanilla 800
+	if ((mPosX > aMaxX || mPosX + mWidth < 0.0f) && !aPvzuYoung)
 	{
+		// PVZU: vanilla removes a projectile here, so past x 800 nothing is ever hit. On a wider screen a straight
+		// shot keeps flying across the visible street, but stays out of every collision; other kinds still vanish.
+		if (mPosX > aMaxX && (mMotionType == ProjectileMotion::MOTION_STRAIGHT || mMotionType == ProjectileMotion::MOTION_THREEPEATER) &&
+			mPosX < pvzu::engine::VisibleRightBoardX(mBoard))
+			return;
 		Die();
 		return;
 	}
@@ -290,7 +320,9 @@ void Projectile::CheckForCollision()
 		return;
 	}
 
-	if (mProjectileType == ProjectileType::PROJECTILE_STAR && (mPosY > 600.0f || mPosY < 40.0f))
+	if ((mProjectileType == ProjectileType::PROJECTILE_STAR ||
+		 (mMotionType == ProjectileMotion::MOTION_STAR && (pvzu::unnamed::DayPlantsOn() || pvzu::unnamed::PoolPlantsOn() || pvzu::unnamed::FogPlantsOn()))) /* PVZU: Unnamed diagonal peas, Jalapeno barrage, Split Pea sweep (hook 379) */ &&
+		(mPosY > 600.0f || mPosY < 40.0f) && !pvzu::engine::ModModeCarnivalKeepsStar(this)) // PVZU: mod mode 0x8b (hook 379)
 	{
 		Die();
 		return;
@@ -306,7 +338,7 @@ void Projectile::CheckForCollision()
 		return;
 	}
 
-	if (mProjectileType == ProjectileType::PROJECTILE_ZOMBIE_PEA)
+	if (mProjectileType == ProjectileType::PROJECTILE_ZOMBIE_PEA && !(mPvzu.modShot != 0 && pvzu::engine::ModShotHitsZombies(this))) // PVZU: a Leaf Shield turned it (hook 380)
 	{
 		Plant* aPlant = FindCollisionTargetPlant();
 		if (aPlant)
@@ -321,6 +353,11 @@ void Projectile::CheckForCollision()
 		}
 		return;
 	}
+
+	if (pvzu::engine::ReflectedShotCollision(this)) // PVZU: a reflected shot hits plants, then hypnotised zombies (hooks 380/381)
+		return;
+	if (pvzu::engine::Level70BossShotCollision(this)) // PVZU: the 7-10 boss's ray-gun melons hit plants (hook 380)
+		return;
 
 	Zombie* aZombie = FindCollisionTarget();
 	if (aZombie)
@@ -473,7 +510,9 @@ void Projectile::DoSplashDamage(Zombie* theZombie)
 	}
 
 	int aOriginalDamage = aProjectileDef.mDamage;
-	int aSplashDamage = aProjectileDef.mDamage / 3;
+	if (mProjectileType == ProjectileType::PROJECTILE_FIREBALL && mPvzu.fireTier != 0 && (pvzu::unnamed::DayPlantsOn() || pvzu::unnamed::PoolPlantsOn()))
+		aOriginalDamage = pvzu::unnamed::FireTierDamage(mPvzu.fireTier, aOriginalDamage); // PVZU: Unnamed fire tiers (hook 389)
+	int aSplashDamage = aOriginalDamage / 3; // PVZU: was aProjectileDef.mDamage / 3 (same value in vanilla)
 	int aMaxSplashDamageAmount = aOriginalDamage * 7;
 	if (mProjectileType == ProjectileType::PROJECTILE_FIREBALL)
 	{
@@ -614,7 +653,7 @@ void Projectile::UpdateLobMotion()
 		}
 		else
 		{
-			aPlant->mPlantHealth -= GetProjectileDef().mDamage;
+			aPlant->mPlantHealth -= pvzu::engine::CatapultShotHitsPlant(this, aPlant, GetProjectileDef().mDamage); // PVZU: vase / bug spray (hooks 393 / 394)
 			aPlant->mEatenFlashCountdown = std::max(aPlant->mEatenFlashCountdown, 25);
 			mApp->PlayFoley(FoleyType::FOLEY_SPLAT);
 			Die();
@@ -622,6 +661,7 @@ void Projectile::UpdateLobMotion()
 	}
 	else if (mProjectileType == ProjectileType::PROJECTILE_COBBIG)
 	{
+		pvzu::engine::ModCobBurnCapScope aPvzuCap(this); // PVZU: a Kernel-loaded Loaded Cannon cob burns with cap 3000 (0xc1179f)
 		int aBeforeGargantuarCount = mBoard->GetLiveGargantuarCount();
 		mBoard->KillAllZombiesInRadius(mRow, mPosX + 80, mPosY + 40, 115, 1, true, mDamageRangeFlags);
 		int aAfterGargantuarCount = mBoard->GetLiveGargantuarCount();
@@ -822,6 +862,8 @@ void Projectile::PlayImpactSound(Zombie* theZombie)
 
 void Projectile::DoImpact(Zombie* theZombie)
 {
+	if (pvzu::engine::ModShotImpact(this, theZombie)) // PVZU: mod shots and kind stars (Plan 8 part 3a); no-op otherwise
+		return;
 	PlayImpactSound(theZombie);
 
 	if (IsSplashDamage(theZombie))
@@ -829,6 +871,17 @@ void Projectile::DoImpact(Zombie* theZombie)
 		if (mProjectileType == ProjectileType::PROJECTILE_FIREBALL && theZombie)
 		{
 			theZombie->RemoveColdEffects();
+			// PVZU: Unnamed tier 3..5 fireballs chill for 7.5 s instead and hit a zombie that still has its arm for 10 (hook 721)
+			if (mPvzu.fireTier != 0 && (pvzu::unnamed::DayPlantsOn() || pvzu::unnamed::PoolPlantsOn()) && pvzu::unnamed::FireTierChills(mPvzu.fireTier))
+			{
+				const bool aHadArm = theZombie->mHasArm;
+				if (aHadArm && pvzu::unnamed::FireTierArmDamage() > 0)
+					theZombie->TakeBodyDamage(pvzu::unnamed::FireTierArmDamage(), pvzu::unnamed::FireTierArmDamageFlags());
+				theZombie->mChilledCounter = pvzu::unnamed::FireTierChillCs();
+				theZombie->UpdateAnimSpeed();
+				pvzu::unnamed::LogPlantAbility(static_cast<int>(mBoard->mMainCounter), std::format("FIREBALL tier {} row {}: fireTier.chill {} cs armHit {}",
+					mPvzu.fireTier, mRow, theZombie->mChilledCounter, aHadArm ? pvzu::unnamed::FireTierArmDamage() : 0));
+			}
 		}
 
 		DoSplashDamage(theZombie);
@@ -836,7 +889,13 @@ void Projectile::DoImpact(Zombie* theZombie)
 	else if (theZombie)
 	{
 		unsigned int aDamageFlags = GetDamageFlags(theZombie);
-		theZombie->TakeDamage(GetProjectileDef().mDamage, aDamageFlags);
+		int aPvzuDamage = pvzu::engine::RoofShotDamage(this, theZombie, GetProjectileDef().mDamage); // PVZU: big cabbage 400 (0xc05700)
+		aPvzuDamage = pvzu::engine::SmallRulesShotHit(this, theZombie, aPvzuDamage); // PVZU: plain star x2, pity hypnotise (hooks 396/397)
+		if (mPvzu.modShot != 0) // PVZU: Shrapnel shard +250 (Plan 8 part 3b)
+			aPvzuDamage = pvzu::engine::SpecialShotImpact(this, theZombie, aPvzuDamage);
+		pvzu::engine::DoorReflect(this, theZombie, aPvzuDamage, aDamageFlags); // PVZU: Screen Door turns the shot (hook 709)
+		if (!pvzu::engine::ModModePuffImpact(this, theZombie, aDamageFlags)) // PVZU: mod mode 0x8e homing puff 80 (hook 396)
+			theZombie->TakeDamage(aPvzuDamage, aDamageFlags);
 	}
 
 	float aLastPosX = mPosX - mVelX;
@@ -899,6 +958,7 @@ void Projectile::DoImpact(Zombie* theZombie)
 
 		if (theZombie)
 		{
+			pvzu::engine::RoofButterShot aPvzuShot(this); // PVZU: hook 720 reads this shot's Kernel streak
 			theZombie->ApplyButter();
 		}
 		break;
@@ -934,13 +994,22 @@ void Projectile::DoImpact(Zombie* theZombie)
 		}
 	}
 
+	if (pvzu::engine::SpecialShotSurvivesHit(this)) // PVZU: 7-5 / mode 0x89, snake stars fly through zombies (0x6511e3)
+		return;
+	if (pvzu::engine::FogShotSurvivesHit(this)) // PVZU: Unnamed Cactus spike: up to 64 hits (hook 806); stars: in Die()
+		return;
 	Die();
 }
 
 void Projectile::Update()
 {
+	pvzu::engine::ModModeProjectileTick(this); // PVZU: mod mode 0x82 peas -> melons (hook 402)
 	mProjectileAge++;
+	pvzu::engine::FogStarCurveTick(this); // PVZU: Unnamed Starfruit boomerang / spiral stars (hook 400 -> 0x95b170)
+	pvzu::engine::SpecialProjectileTick(this); // PVZU: 7-5 stars replay the head's turns (hook 401)
 	if (mApp->mGameScene != GameScenes::SCENE_PLAYING && !mBoard->mCutScene->ShouldRunUpsellBoard())
+		return;
+	if (mPvzu.modShot != 0 && pvzu::engine::SpecialShotUpdate(this)) // PVZU: a Shrapnel core plants its Cherry Bomb (hook 400)
 		return;
 
 	int aTime = 20;
@@ -966,6 +1035,7 @@ void Projectile::Update()
 	{
 		mClickBackoffCounter--;
 	}
+	pvzu::engine::ModShotUpdate(this); // PVZU: a kind star with a return timer turns homing (hook 403)
 	mRotation += mRotationSpeed;
 
 	UpdateMotion();
@@ -1010,7 +1080,7 @@ void Projectile::Draw(Graphics* g)
 		break;
 	case ProjectileType::PROJECTILE_CABBAGE:
 		aImage = IMAGE_REANIM_CABBAGEPULT_CABBAGE;
-		aScale = 1.0f;
+		aScale = pvzu::engine::RoofShotDrawScale(this, 1.0f); // PVZU: Unnamed big cabbage drawn x3 (hook 408)
 		break;
 	case ProjectileType::PROJECTILE_KERNEL:
 		aImage = IMAGE_REANIM_CORNPULT_KERNAL;
@@ -1032,6 +1102,9 @@ void Projectile::Draw(Graphics* g)
 		PVZP_ASSERT(false);
 		break;
 	}
+	Color aPvzuTint = Color::White;
+	pvzu::engine::ModShotLook(this, aImage, aScale, aPvzuTint); // PVZU: mod shot art: carrier image, tint (Plan 8 part 3a)
+	const bool aPvzuPlain = aPvzuTint == Color::White;
 
 	bool aMirror = false;
 	if (mMotionType == ProjectileMotion::MOTION_BEE_BACKWARDS)
@@ -1047,7 +1120,7 @@ void Projectile::Draw(Graphics* g)
 		int aCelWidth = aImage->GetCelWidth();
 		int aCelHeight = aImage->GetCelHeight();
 		Rect aSrcRect(aCelWidth * mFrame, aCelHeight * aProjectileDef.mImageRow, aCelWidth, aCelHeight);
-		if (FloatApproxEqual(mRotation, 0.0f) && FloatApproxEqual(aScale, 1.0f))
+		if (FloatApproxEqual(mRotation, 0.0f) && FloatApproxEqual(aScale, 1.0f) && aPvzuPlain) // PVZU: tinted shots take the matrix path
 		{
 			Rect aDestRect(0, 0, aCelWidth, aCelHeight);
 			g->DrawImageMirror(aImage, aDestRect, aSrcRect, aMirror);
@@ -1058,7 +1131,7 @@ void Projectile::Draw(Graphics* g)
 			float aOffsetY = mPosZ + mPosY + aCelHeight * 0.5f;
 			SexyTransform2D aTransform;
 			PvzpScaleRotateTransformMatrix(aTransform, aOffsetX + mBoard->mX, aOffsetY + mBoard->mY, mRotation, aScale, aScale);
-			PvzpBltMatrix(g, aImage, aTransform, g->mClipRect, Color::White, g->mDrawMode, aSrcRect);
+			PvzpBltMatrix(g, aImage, aTransform, g->mClipRect, aPvzuTint, g->mDrawMode, aSrcRect); // PVZU: was Color::White
 		}
 	}
 
@@ -1151,7 +1224,12 @@ void Projectile::DrawShadow(Graphics* g)
 
 void Projectile::Die()
 {
+	if (pvzu::engine::ProjectileSurvivesDie(this)) // PVZU: a reflected shot lives through its impact once (0x651CE7)
+		return;
+	if (pvzu::engine::FogStarSurvivesDie(this)) // PVZU: Unnamed stars pierce: 254 Die calls from CheckForCollision (0x6511e3)
+		return;
 	mDead = true;
+	pvzu::engine::SpecialProjectileDied(this); // PVZU: 7-5 / mode 0x89, keep the slot's last state (the exe reads it)
 
 	if (mProjectileType == ProjectileType::PROJECTILE_PUFF || mProjectileType == ProjectileType::PROJECTILE_SNOWPEA)
 	{
@@ -1196,7 +1274,9 @@ Rect Projectile::GetProjectileRect()
 
 void Projectile::ConvertToFireball(int theGridX)
 {
-	if (mHitTorchwoodGridX == theGridX)
+	// PVZU: Unnamed Torchwood tiers (hooks 411/412): steps mPvzu.fireTier, and a pea a Torchwood just thawed converts at
+	// that same Torchwood; with the tiers off this is the vanilla `mHitTorchwoodGridX == theGridX` guard.
+	if (!pvzu::unnamed::FireballConvert(mPvzu, mHitTorchwoodGridX, theGridX))
 		return;
 
 	mProjectileType = ProjectileType::PROJECTILE_FIREBALL;
@@ -1215,6 +1295,12 @@ void Projectile::ConvertToFireball(int theGridX)
 	aFirePeaReanim->SetPosition(mPosX + aOffsetX, mPosY + aOffsetY);
 	aFirePeaReanim->mLoopType = ReanimLoopType::REANIM_LOOP;
 	aFirePeaReanim->mAnimRate = RandRangeFloat(50.0f, 80.0f);
+	int aTintR, aTintG, aTintB;
+	if (mPvzu.fireTier != 0 && (pvzu::unnamed::DayPlantsOn() || pvzu::unnamed::PoolPlantsOn()) && pvzu::unnamed::FireTierLook(mPvzu.fireTier, aTintR, aTintG, aTintB))
+	{
+		aFirePeaReanim->mColorOverride = Color(aTintR, aTintG, aTintB); // PVZU: Unnamed tier tints, 3 = Day "ice-fire" ball (hook 412)
+		aFirePeaReanim->mFilterEffect = FilterEffect::FILTER_EFFECT_WASHED_OUT;
+	}
 	AttachReanim(mAttachmentID, aFirePeaReanim, aOffsetX, aOffsetY);
 }
 
@@ -1231,7 +1317,7 @@ void Projectile::ConvertToPea(int theGridX)
 
 const ProjectileDefinition& Projectile::GetProjectileDef()
 {
-	const ProjectileDefinition& aProjectileDef = gProjectileDefinition[mProjectileType];
+	const ProjectileDefinition& aProjectileDef = pvzu::engine::ActiveProjectile(mProjectileType); // PVZU: mod packs can change damage
 	PVZP_ASSERT(aProjectileDef.mProjectileType == mProjectileType);
 
 	return aProjectileDef;

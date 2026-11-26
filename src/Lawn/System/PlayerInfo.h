@@ -75,7 +75,7 @@ public:
 	int32_t             mLevel;                             //+0x24
 	int32_t             mCoins;                             //+0x28
 	uint32_t            mFinishedAdventure;                 //+0x2C
-	uint32_t            mChallengeRecords[100];             //+0x30
+	uint32_t            mChallengeRecords[148];             //+0x30 PVZU: 100..147 = Unnamed mod modes 0x65..0x94 (saved apart, Mod/Engine/ModModes.h); the save keeps 100
 	uint32_t            mPurchases[80];                     //+0x1C0
 	uint32_t            mPlayTimeActivePlayer;              //+0x300
 	uint32_t            mPlayTimeInactivePlayer;            //+0x304

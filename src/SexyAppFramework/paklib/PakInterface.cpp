@@ -22,6 +22,7 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/AssetOverlay.h" // PVZU
 #include <algorithm>
 #include <filesystem>
 #include "Common.h"
@@ -216,6 +217,22 @@ PFILE* PakInterface::FOpen(const char* theFileName, const char* anAccess)
 {
 	if ((strcasecmp(anAccess, "r") == 0) || (strcasecmp(anAccess, "rb") == 0) || (strcasecmp(anAccess, "rt") == 0))
 	{
+		// PVZU: in Unnamed mode the imported Unnamed files win over main.pak and loose files
+		if (auto anOverlay = pvzu::OverlayResolve(theFileName))
+		{
+			if (FILE* anOverlayFP = fopen(anOverlay->string().c_str(), anAccess))
+			{
+				PFILE* aPFP = new PFILE;
+				aPFP->mRecord = nullptr;
+				aPFP->mPos = 0;
+				aPFP->mFP = anOverlayFP;
+#ifdef LOW_MEMORY
+				aPFP->mBufferStart = 0;
+				aPFP->mBufferLen = 0;
+#endif
+				return aPFP;
+			}
+		}
 		std::string aKey = NormalizePakPath(theFileName);
 		auto anItr = mPakRecordMap.find(aKey);
 		if (anItr != mPakRecordMap.end())

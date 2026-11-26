@@ -79,7 +79,7 @@ public:
 	std::unique_ptr<GameButton> mAlmanacButton;
 	std::unique_ptr<GameButton> mMenuButton;
 	std::unique_ptr<GameButton> mImitaterButton;
-	ChosenSeed              mChosenSeeds[NUM_SEED_TYPES];
+	ChosenSeed              mChosenSeeds[0x80]; // PVZU: every seed up to Unnamed's mod plants 0x50..0x7f (Mod/Unnamed/ModPlants.h)
 	LawnApp*                mApp;
 	Board*                  mBoard;
 	int                     mNumSeedsToChoose;

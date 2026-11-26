@@ -32,6 +32,9 @@
 #include "misc/Debug.h"
 #include "../../PvzpLib/PvzpStringFile.h"
 #include "widget/WidgetManager.h"
+#include "Mod/Engine/ModModes.h" // PVZU: Unnamed mod-only modes list
+#include "Mod/Engine/ModesVanilla.h" // PVZU
+#include "Mod/Engine/TestCheats.h" // PVZU Plan 9 C1
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <format>
@@ -217,6 +220,10 @@ const ChallengeDefinition& GetChallengeDefinition(int theChallengeMode)
 	[[maybe_unused]] const ChallengeDefinition& aDef = gChallengeDefs[theChallengeMode];  // Unused in Release mode
 	PVZP_ASSERT(aDef.mChallengeMode == theChallengeMode + GAMEMODE_SURVIVAL_NORMAL_STAGE_1);
 
+	// PVZU: Unnamed moves Endless Day/Night/Fog/Roof to the Survival page and the Squirrel on Limbo (study 2.1). Also the
+	// hook for a mod-mode table (Mod/Engine/ModesVanilla.h).
+	if (const ChallengeDefinition* aPvzuDef = pvzu::engine::ModesChallengeDefinition(theChallengeMode))
+		return *aPvzuDef;
 	return gChallengeDefs[theChallengeMode];
 }
 
@@ -253,6 +260,8 @@ void ChallengeScreen::SetUnlockChallengeIndex(ChallengePage thePage, bool theIsI
 
 int ChallengeScreen::MoreTrophiesNeeded(int theChallengeIndex)
 {
+	if (pvzu::engine::TestCheatModesOpen()) // PVZU Plan 9 C1: test cheat "all modes open"
+		return 0;
 	const ChallengeDefinition& aDef = GetChallengeDefinition(theChallengeIndex);
 	if (mApp->mGameMode == GAMEMODE_UPSELL && mApp->mGameScene == SCENE_LEVEL_INTRO)
 	{
@@ -626,11 +635,13 @@ void ChallengeScreen::AddedToManager(WidgetManager* theWidgetManager)
 	AddWidget(mBackButton.get());
 	for (const std::unique_ptr<ButtonWidget>& aButton : mPageButton) AddWidget(aButton.get());
 	for (const std::unique_ptr<ButtonWidget>& aButton : mChallengeButtons) AddWidget(aButton.get());
+	pvzu::engine::ModModesAttach(this); // PVZU: "Unnamed modes" button + list (feature modModes; no-op otherwise)
 }
 
 void ChallengeScreen::RemovedFromManager(WidgetManager* theWidgetManager)
 {
 	Widget::RemovedFromManager(theWidgetManager);
+	pvzu::engine::ModModesDetach(this); // PVZU
 	RemoveWidget(mBackButton.get());
 	for (const std::unique_ptr<ButtonWidget>& aButton : mPageButton) RemoveWidget(aButton.get());
 	for (const std::unique_ptr<ButtonWidget>& aButton : mChallengeButtons) RemoveWidget(aButton.get());

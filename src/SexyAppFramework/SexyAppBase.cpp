@@ -26,6 +26,8 @@
 //#define SEXY_PERF_ENABLED
 //#define SEXY_MEMTRACE
 
+#include "Mod/CmdLine.h" // PVZU
+#include "Mod/Engine/DebugHooks.h" // PVZU
 #include <string>
 #include <string_view>
 #include <fstream>
@@ -79,6 +81,7 @@
 #include "sound/DummyMusicInterface.h"
 #include "misc/memmgr.h"
 #include "misc/RegEmu.h"
+#include "Mod/Engine/HdTextures.h" // PVZU
 
 using namespace Sexy;
 
@@ -1613,6 +1616,7 @@ void SexyAppBase::DoExit([[maybe_unused]] int theCode)
 void SexyAppBase::UpdateFrames()
 {
 	mUpdateCount++;
+	pvzu::engine::DebugRunUpdate(this); // PVZU: scripted desktop checks (inert without -pvzu-* options)
 
 	if (!mMinimized)
 		mWidgetManager->UpdateFrame();
@@ -3152,6 +3156,8 @@ static bool ParamTakesValue(std::string_view theParamName)
 	static constexpr std::string_view kValueParams[] = {
 		"-play", "-playnum", "-record", "-recnum", "-resdir", "-savedir",
 	};
+	if (pvzu::IsPvzuParam(theParamName)) // PVZU: our options may take a value too
+		return true;
 	return std::ranges::find(kValueParams, theParamName) != std::end(kValueParams);
 }
 
@@ -3262,6 +3268,10 @@ void SexyAppBase::HandleCmdLineParam(std::string_view theParamName, std::string_
 	else if (theParamName == "-savedir")
 	{
 		mCustomSaveDir = std::string(theParamValue);
+	}
+	else if (pvzu::IsPvzuParam(theParamName)) // PVZU: stored for src/Mod code
+	{
+		pvzu::SetCmdOption(theParamName, theParamValue);
 	}
 	else
 	{
@@ -3523,6 +3533,7 @@ Sexy::GLImage* SexyAppBase::GetImage(const std::string& theFileName, bool commit
 	GLImage* anImage = new GLImage(mGLInterface.get());
 	anImage->SetBits(aLoadedImage->GetBits(), aLoadedImage->GetWidth(), aLoadedImage->GetHeight(), commitBits);
 	anImage->mFilePath = theFileName;
+	pvzu::hd::OnImageLoaded(anImage, theFileName); // PVZU: HD twin, if the pack has one
 #ifdef LOW_MEMORY
 	anImage->mPurgeBits = true;
 #endif

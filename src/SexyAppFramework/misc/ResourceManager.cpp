@@ -32,6 +32,7 @@
 #include "graphics/GLInterface.h"
 #include "graphics/ImageFont.h"
 #include "imagelib/ImageLib.h"
+#include "Mod/Engine/HdTextures.h" // PVZU
 //#define SEXY_PERF_ENABLED
 #include "PerfTimer.h"
 
@@ -686,7 +687,9 @@ bool ResourceManager::DoLoadImage(ImageRes *theRes)
 
 	bool isNew;
 	ImageLib::gAlphaComposeColor = theRes->mAlphaColor;
+	pvzu::hd::SetLoadGroup(mCurResGroup); // PVZU: -pvzu-log-hd
 	SharedImageRef aSharedImageRef = gSexyAppBase->GetSharedImage(theRes->mPath, theRes->mVariant, &isNew);
+	pvzu::hd::SetLoadGroup("");
 	ImageLib::gAlphaComposeColor = 0xFFFFFF;
 
 	GLImage* aGLImage = (GLImage*) aSharedImageRef;
@@ -696,6 +699,7 @@ bool ResourceManager::DoLoadImage(ImageRes *theRes)
 
 	if (isNew)
 	{
+		const int aPvzuCountBefore = aGLImage->mBitsChangedCount; // PVZU: the HD pack holds the composed image
 		if (!theRes->mAlphaImage.empty())
 		{
 			if (!LoadAlphaImage(theRes, aSharedImageRef))
@@ -707,6 +711,7 @@ bool ResourceManager::DoLoadImage(ImageRes *theRes)
 			if (!LoadAlphaGridImage(theRes, aSharedImageRef))
 				return false;
 		}
+		pvzu::hd::KeepIfMatchedBefore(aGLImage, aPvzuCountBefore); // PVZU
 	}
 
 	aGLImage->CommitBits();

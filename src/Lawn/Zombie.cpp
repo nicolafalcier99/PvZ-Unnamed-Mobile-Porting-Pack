@@ -19,6 +19,39 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Engine/EliteZombies.h" // PVZU
+#include "Mod/Engine/ZombieGapsV1.h" // PVZU: Plan 9 V1
+#include "Mod/Engine/EliteGaps.h" // PVZU Plan 9 R4: Football gaps
+#include "Mod/Engine/OptionsPanel.h" // PVZU
+#include "Mod/Engine/TestCheats.h" // PVZU Plan 9 C1
+#include "Mod/Engine/NightEliteZombies.h" // PVZU
+#include "Mod/Layout.h" // PVZU
+#include "Mod/Engine/DebugHooks.h" // PVZU
+#include "Mod/Engine/PoolLevels.h" // PVZU: Zomboni ice timer bound
+#include "Mod/Engine/EngineTables.h" // PVZU
+#include "Mod/Engine/DayLevels.h" // PVZU
+#include "Mod/Engine/VasePole.h" // PVZU: Plan 9 R2 vase pole
+#include "Mod/Engine/NightLevels.h" // PVZU
+#include "Mod/Engine/PoolEliteZombies.h" // PVZU
+#include "Mod/Engine/FogEliteZombies.h" // PVZU
+#include "Mod/Engine/RoofEliteZombies.h" // PVZU
+#include "Mod/GameData.h" // PVZU
+#include "Mod/Unnamed/DayPlants.h" // PVZU: LogPlantAbility
+#include "Mod/Unnamed/NightPlants.h" // PVZU
+#include "Mod/Unnamed/PoolPlants.h" // PVZU
+#include "Mod/Unnamed/SmallRules.h" // PVZU: V2 flags 13 hit flying zombies
+#include "Mod/Engine/FogPlantSites.h" // PVZU
+#include "Mod/Engine/ZombossSites.h" // PVZU: Dr. Zomboss (Plan 6 Task 4)
+#include "Mod/Engine/RoofPlantSites.h" // PVZU
+#include "Mod/Engine/World7EliteZombies.h" // PVZU: world-7 zombies, ZomBotany (Plan 7 Task 2)
+#include "Mod/Engine/CatapultShots.h" // PVZU: Catapult vase / bug-spray shots, volley (Plan 9 R3)
+#include "Mod/Engine/SpecialLevelHooks.h" // PVZU: special levels (Plan 7 Task 3a)
+#include "Mod/Engine/Level70Boss.h" // PVZU: the 7-10 giant Newspaper boss (Plan 7 Task 3b)
+#include "Mod/Engine/ModPlantsShooters.h" // PVZU: Loaded Cannon burn cap (Plan 8 part 3a)
+#include "Mod/Engine/ModModes.h" // PVZU: mod-only modes 0x65..0x94
+#include "Mod/Engine/ModPlants.h" // PVZU: ModSeedOf (Plan 8)
+#include "Mod/Engine/ModPlantsShadow.h" // PVZU: Charmed Tall-nut, Toxic Shadow-shroom (Plan 8 part 3c)
+#include "Mod/Engine/ModZombieStatus.h" // PVZU: poisons, weakened (Plan 8 part 3c)
 #include <climits>
 #include <format>
 
@@ -43,6 +76,7 @@
 #include "../PvzpLib/Reanimator.h"
 #include "../PvzpLib/Attachment.h"
 #include "../PvzpLib/PvzpParticle.h"
+#include "Mod/Engine/ModPlantsSpecials.h" // PVZU Plan 8 part 3b: special mod plants
 #include <algorithm>
 
 constexpr const int ZOMBIE_START_RANDOM_OFFSET = 40;
@@ -133,7 +167,7 @@ const ZombieDefinition& GetZombieDefinition(ZombieType theZombieType)
 	PVZP_ASSERT(theZombieType >= 0 && theZombieType < NUM_ZOMBIE_TYPES);
 	PVZP_ASSERT(gZombieDefs[theZombieType].mZombieType == theZombieType);
 
-	return gZombieDefs[theZombieType];
+	return pvzu::engine::ActiveZombie(theZombieType); // PVZU: mod packs can change wave values/weights
 }
 
 Zombie::Zombie()
@@ -143,6 +177,7 @@ Zombie::Zombie()
 void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Zombie* theParentZombie, int theFromWave)
 {
 	PVZP_ASSERT(theType >= 0 && theType <= ZombieType::NUM_ZOMBIE_TYPES);
+	mPvzu = {}; // PVZU
 
 	int aZombatarRecordIndex = -1;
 	if (theType == ZombieType::ZOMBIE_FLAG && mBoard)
@@ -159,6 +194,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 	mFromWave = theFromWave;
 	mRow = theRow;
 	mPosX = 780 + Rand(ZOMBIE_START_RANDOM_OFFSET);
+	mPosX += pvzu::engine::StartOffsetPx(theType, theFromWave); // PVZU: start x, Unnamed +133 (hook 480; Pole/Flag set their own below)
 	mPosY = GetPosYBasedOnRow(theRow);
 	mVelX = 0.0f;
 	mVelZ = 0.0f;
@@ -380,7 +416,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 		mZombiePhase = ZombiePhase::PHASE_POLEVAULTER_PRE_VAULT;
 		mHasObject = true;
 		mVariant = false;
-		mPosX = WIDE_BOARD_WIDTH + 70 + Rand(10);
+		mPosX = pvzu::engine::PoleStartBaseX(WIDE_BOARD_WIDTH + 70) + Rand(10); // PVZU: start x, Unnamed Pole 955 (hook 492)
 		if (IsOnBoard())
 		{
 			PlayZombieReanim("anim_run", ReanimLoopType::REANIM_LOOP, 0, 0.0f);
@@ -418,7 +454,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 		mBodyHealth = 3000;
 		mAnimFrames = 24;
 		mAnimTicksPerFrame = 8;
-		mPosX = WIDE_BOARD_WIDTH + 45 + Rand(10);
+		mPosX = pvzu::engine::ZombieStartBaseX(mZombieType, WIDE_BOARD_WIDTH + 45) + Rand(10); // PVZU: start x, Unnamed 978 (hook 512)
 		mZombieRect = Rect(-17, -38, 125, 154);
 		mZombieAttackRect = Rect(-30, -38, 89, 154);
 		mVariant = false;
@@ -426,6 +462,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 		mHasObject = true;
 
 		int aPoleHit = Rand(100);
+		pvzu::engine::RoofGargPoleRoll(aPoleHit); // PVZU: Unnamed staff = aPoleHit % 20 == 1 (hook 513)
 		int aPoleVariant;
 		if (!IsOnBoard() || mBoard->mLevel == 48)
 		{
@@ -459,7 +496,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 		mBodyHealth = 1350;
 		mAnimFrames = 2;
 		mAnimTicksPerFrame = 8;
-		mPosX = WIDE_BOARD_WIDTH + Rand(10);
+		mPosX = pvzu::engine::ZombieStartBaseX(mZombieType, WIDE_BOARD_WIDTH) + Rand(10); // PVZU: start x, Unnamed 933 (hook 495)
 		aRenderOffset = 8;
 		PlayZombieReanim("anim_drive", ReanimLoopType::REANIM_LOOP, 0, 12.0f);
 		mZombieRect = Rect(0, -13, 153, 140);
@@ -469,7 +506,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 
 	case ZombieType::ZOMBIE_CATAPULT:
 		mBodyHealth = 850;
-		mPosX = WIDE_BOARD_WIDTH + 25 + Rand(10);
+		mPosX = pvzu::engine::ZombieStartBaseX(mZombieType, WIDE_BOARD_WIDTH + 25) + Rand(10); // PVZU: start x, Unnamed 958 (hook 497)
 		mSummonCounter = 20;
 		if (IsOnBoard())
 		{
@@ -691,7 +728,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 		mZombieRect = Rect(700, 80, 90, 430);
 		mZombieAttackRect = Rect(0, 0, 0, 0);
 		aRenderLayer = RenderLayer::RENDER_LAYER_TOP;
-		mBodyHealth = mApp->IsAdventureMode() ? 40000 : 60000;
+		mBodyHealth = pvzu::engine::ZombossStartHp(this, mApp->IsAdventureMode() ? 40000 : 60000); // PVZU: Unnamed 50000 / 80000 (B1)
 		if (IsOnBoard())
 		{
 			PlayZombieReanim("anim_enter", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 0, 12.0f);
@@ -857,6 +894,8 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 	case ZombieType::ZOMBIE_INVALID:
 		break;
 	}
+	pvzu::engine::ZomBotanyInit(this); // PVZU: Unnamed ZomBotany HP / cone / bucket / door, Tall-nut 1-in-12 (hooks 507-511)
+	pvzu::engine::EliteInit(this); // PVZU: Unnamed elite roll, HP, attack rect, elite art, spawn log
 
 	if (IsOnBoard() && mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZOMBIQUARIUM)
 	{
@@ -870,7 +909,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 		mSummonCounter = RandRangeInt(200, 400);
 	}
 
-	if (mApp->IsLittleTroubleLevel() && (IsOnBoard() || theFromWave == Zombie::ZOMBIE_WAVE_CUTSCENE))
+	if ((mApp->IsLittleTroubleLevel() || pvzu::engine::ModModeLittleZombies(mApp)) && (IsOnBoard() || theFromWave == Zombie::ZOMBIE_WAVE_CUTSCENE)) // PVZU: V2 0x6e (hook 516)
 	{
 		mScaleZombie = 0.5f;
 		mBodyHealth /= 4;
@@ -878,6 +917,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 		mShieldHealth /= 4;
 		mFlyingHealth /= 4;
 	}
+	pvzu::engine::ModModeZombieInit(this); // PVZU: mod modes 0x72/0x7a/0x86 (hooks 517, 518)
 
 	UpdateAnimSpeed();
 	if (mVariant)
@@ -889,6 +929,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 	mHelmMaxHealth = mHelmHealth;
 	mShieldMaxHealth = mShieldHealth;
 	mFlyingMaxHealth = mFlyingHealth;
+	pvzu::engine::SpecialZombieSpawned(this); // PVZU: 6-5 half HP, max kept (hook 517 sits at the max stores), 71 helmets x2 (hook 515)
 	mDead = false;
 	mX = static_cast<int>(mPosX);
 	mY = static_cast<int>(mPosY);
@@ -928,6 +969,7 @@ void Zombie::SetupDoorArms(Reanimation* aReanim, bool theShow)
 
 void Zombie::SetupReanimLayers(Reanimation* aReanim, ZombieType theZombieType)
 {
+	pvzu::engine::HideFootballHelmTrack(aReanim); // PVZU: Unnamed's anim_football track hidden on every plain zombie (hook 519)
 	aReanim->AssignRenderGroupToPrefix("anim_cone", RENDER_GROUP_HIDDEN);
 	aReanim->AssignRenderGroupToPrefix("anim_bucket", RENDER_GROUP_HIDDEN);
 	aReanim->AssignRenderGroupToPrefix("anim_screendoor", RENDER_GROUP_HIDDEN);
@@ -954,6 +996,7 @@ void Zombie::SetupReanimLayers(Reanimation* aReanim, ZombieType theZombieType)
 	else if (theZombieType == ZombieType::ZOMBIE_NEWSPAPER)
 	{
 		aReanim->AssignRenderGroupToPrefix("Zombie_paper_paper", RENDER_GROUP_HIDDEN);
+		pvzu::engine::HideUnnamedOnlyTracks(aReanim, theZombieType); // PVZU: Unnamed's knife/football tracks (merged reanim)
 	}
 	else if (theZombieType == ZombieType::ZOMBIE_FLAG)
 	{
@@ -1166,6 +1209,11 @@ void Zombie::BungeeDropZombie(Zombie* theDroppedZombie, int theGridX, int theGri
 
 void Zombie::PickRandomSpeed()
 {
+	if (pvzu::engine::FogPickSpeed(this)) // PVZU: Unnamed flying Balloon 0.45 (hook 521)
+	{
+		UpdateAnimSpeed();
+		return;
+	}
 	if (mZombiePhase == ZombiePhase::PHASE_SNORKEL_WALKING_IN_POOL)
 	{
 		mVelX = 0.3f;
@@ -1231,9 +1279,11 @@ void Zombie::PickRandomSpeed()
 void Zombie::BungeeStealTarget()
 {
 	PlayZombieReanim("anim_grab", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 24.0f);
+	if (pvzu::engine::RoofBungeeStealsZombie(this)) // PVZU: Unnamed bungee takes an opposite-side zombie instead (hook 522)
+		return;
 
 	Plant* aPlant = mBoard->GetTopPlantAt(mTargetCol, mRow, PlantPriority::TOPPLANT_BUNGEE_ORDER);
-	if (aPlant && !aPlant->NotOnGround())
+	if (aPlant && !aPlant->NotOnGround() && !pvzu::engine::RoofPlantAlreadyGrabbed(aPlant)) // PVZU: Unnamed steal guard
 	{
 		PVZP_ASSERT(aPlant->mSeedType != SeedType::SEED_GRAVEBUSTER);
 
@@ -1249,6 +1299,8 @@ void Zombie::BungeeStealTarget()
 void Zombie::BungeeLiftTarget()
 {
 	PlayZombieReanim("anim_raise", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 0, 36.0f);
+	if (pvzu::engine::RoofBungeeLiftsZombie(this)) // PVZU: Unnamed bungee rises with the zombie it took (hook 524)
+		return;
 
 	Plant* aPlant = mBoard->mPlants.DataArrayTryToGet(static_cast<unsigned int>(mTargetPlantID));
 	if (aPlant == nullptr)
@@ -1268,6 +1320,8 @@ void Zombie::BungeeLiftTarget()
 
 	aPlant->mOnBungeeState = PlantOnBungeeState::RISING_WITH_BUNGEE;
 	mApp->PlayFoley(FoleyType::FOLEY_FLOOP);
+	pvzu::engine::ZombossBungeeLifted(this, aPlant); // PVZU: boss Jack-head bungee fallback (B8; no-op when roofZombies is on)
+	pvzu::engine::RoofBungeeLiftedPlant(this, aPlant); // PVZU: Unnamed Jack-head bungee leaves a popping Jack (hook 529)
 
 	Reanimation* aPlantReanim = mApp->ReanimationTryToGet(aPlant->mBodyReanimID);
 	if (aPlantReanim)
@@ -1329,7 +1383,8 @@ void Zombie::BungeeLanding()
 	else  // otherwise start stealing the plant
 	{
 		mZombiePhase = ZombiePhase::PHASE_BUNGEE_AT_BOTTOM;
-		mPhaseCounter = 300;
+		// PVZU: wheelbarrow never grabs, Jack head at once (hook 527); boss fallback (B8) is a no-op when roofZombies is on
+		mPhaseCounter = pvzu::engine::RoofBungeeBottomCounter(this, pvzu::engine::ZombossBungeeGrabCs(this, 300));
 		PlayZombieReanim("anim_idle", ReanimLoopType::REANIM_LOOP, 5, 24.0f);
 		mApp->ReanimationGet(mBodyReanimID)->mAnimTime = 0.5f;
 	}
@@ -1479,7 +1534,7 @@ void Zombie::UpdateZombiePogo()
 	if (mZombiePhase == ZombiePhase::PHASE_POGO_FORWARD_BOUNCE_2 && mPhaseCounter == 70)
 	{
 		Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_VAULT);
-		if (aPlant && aPlant->mSeedType == SeedType::SEED_TALLNUT)
+		if (aPlant && pvzu::engine::FogPogoBonks(this, aPlant)) // PVZU: vanilla `== SEED_TALLNUT`; Unnamed adds Giant Wall-nut (hook 532)
 		{
 			mApp->PlayFoley(FoleyType::FOLEY_BONK);
 			mApp->AddPvzpParticle(aPlant->mX + 60, aPlant->mY - 20, mRenderOrder + 1, ParticleEffect::PARTICLE_TALL_NUT_BLOCK);
@@ -1488,9 +1543,18 @@ void Zombie::UpdateZombiePogo()
 			PogoBreak(0U);
 			return;
 		}
+		if (pvzu::engine::FogPogoLandsOnZombies(this)) // PVZU: Unnamed pogo lands on opposite-side zombies, then bonks (hook 531)
+		{
+			mApp->PlayFoley(FoleyType::FOLEY_BONK);
+			mShieldType = ShieldType::SHIELDTYPE_NONE;
+			PogoBreak(0U);
+			return;
+		}
 	}
 
 	if (mPhaseCounter != 0)
+		return;
+	if (pvzu::engine::FogPogoBounceEnd(this)) // PVZU: Unnamed no wind-up, chocolate long bounce, garlic lane change (patch 0x5256eb, hook 533)
 		return;
 
 	Plant* aPlant = nullptr;
@@ -1551,6 +1615,7 @@ void Zombie::ZombieCatapultFire(Plant* thePlant)
 	aProjectile->mVelY = 0.0f;
 	aProjectile->mVelZ = aRangeY / 120.0f - 7.0f;
 	aProjectile->mAccZ = 0.115f;
+	pvzu::engine::World7CatapultShot(this, aProjectile); // PVZU: world-7 vase / bug-spray shot, 5-ball cap (hook 537)
 }
 
 Plant* Zombie::FindCatapultTarget()
@@ -1561,9 +1626,11 @@ Plant* Zombie::FindCatapultTarget()
 	{
 		if (aPlant->mDead)
 			continue;
+		if (aPlant->mPvzu.modSeed != 0 && pvzu::engine::ModPlantUntouchable(aPlant)) // PVZU: Rewind Grass is no Catapult target (hook 543)
+			continue;
 		if (aPlant->mRow == mRow && mX >= aPlant->mX + 100 && !aPlant->NotOnGround() && !aPlant->IsSpiky())
 		{
-			if (aTarget == nullptr || aPlant->mPlantCol < aTarget->mPlantCol)
+			if (aTarget == nullptr || pvzu::engine::RoofCatapultPrefers(this, aPlant->mPlantCol, aTarget->mPlantCol)) // PVZU: vanilla `<`; Unnamed pole head front-most (hook 544)
 			{
 				aTarget = mBoard->GetTopPlantAt(aPlant->mPlantCol, aPlant->mRow, PlantPriority::TOPPLANT_CATAPULT_ORDER);
 			}
@@ -1590,7 +1657,8 @@ void Zombie::UpdateZombieCatapult()
 		if (aBodyReanim->ShouldTriggerTimedEvent(0.545f))
 		{
 			Plant* aPlant = FindCatapultTarget();
-			ZombieCatapultFire(aPlant);
+			if (!pvzu::engine::CatapultVolley(this)) // PVZU: a vase Catapult's volley replaces the shot (hook 547)
+				ZombieCatapultFire(aPlant);
 		}
 		if (aBodyReanim->mLoopCount > 0)
 		{
@@ -1611,6 +1679,7 @@ void Zombie::UpdateZombieCatapult()
 			{
 				ReanimShowTrack("Zombie_catapult_basketball4", RENDER_GROUP_HIDDEN);
 			}
+			pvzu::engine::CatapultBallTracks(this); // PVZU: Unnamed hides |balls - 4| + 1 tracks (hook 549)
 
 			if (mSummonCounter == 0)
 			{
@@ -1643,6 +1712,8 @@ void Zombie::UpdateZombieCatapult()
 
 void Zombie::LandFlyer(unsigned int theDamageFlags)
 {
+	if (pvzu::engine::FogCloudLands(this)) // PVZU: the cloud Balloon never pops, it only sinks (hook 551)
+		return;
 	if (!TestBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_DOESNT_LEAVE_BODY)) && mZombiePhase == ZombiePhase::PHASE_BALLOON_FLYING)
 	{
 		mApp->PlaySample(SOUND_BALLOON_POP);
@@ -1701,7 +1772,7 @@ void Zombie::UpdateZombieNewspaper()
 			}
 
 			StartWalkAnim(20);
-			aBodyReanim->SetImageOverride("anim_head1", IMAGE_REANIM_ZOMBIE_PAPER_MADHEAD);
+			aBodyReanim->SetImageOverride("anim_head1", pvzu::engine::NewspaperMadHead(this, IMAGE_REANIM_ZOMBIE_PAPER_MADHEAD)); // PVZU: football head stays (hook 552)
 		}
 	}
 }
@@ -1734,7 +1805,8 @@ void Zombie::UpdateZombiePolevaulter()
 			{
 				aJumpDistance = 0;
 			}
-			mVelX = aJumpDistance / aAnimDuration;
+			if (!pvzu::engine::V1VaultKeepsSpeed(this)) // PVZU: the road-sign Pole keeps its run speed (hook 555)
+				mVelX = aJumpDistance / aAnimDuration;
 			mHasObject = false;
 		}
 
@@ -1752,7 +1824,12 @@ void Zombie::UpdateZombiePolevaulter()
 		if (aBodyReanim->mAnimTime > 0.6f && aBodyReanim->mAnimTime <= 0.7f)
 		{
 			Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_VAULT);
-			if (aPlant && aPlant->mSeedType == SeedType::SEED_TALLNUT)
+			bool aPvzuBonk = aPlant && aPlant->mSeedType == SeedType::SEED_TALLNUT;
+			if (pvzu::GameData::Get().Feature("dayLevels")) // PVZU: Unnamed vault grave / Tall-nut-like bonk (.text 0x525fa0)
+			{
+				aPvzuBonk = pvzu::engine::UnnamedPoleVault(this, aPlant);
+			}
+			if (aPvzuBonk)
 			{
 				mApp->PlayFoley(FoleyType::FOLEY_BONK);
 				aJumpEnds = true;
@@ -1778,9 +1855,14 @@ void Zombie::UpdateZombiePolevaulter()
 			mApp->PlayFoley(FoleyType::FOLEY_POLEVAULT);
 		}
 
-		if (aJumpEnds)
+		if (aJumpEnds && pvzu::engine::GloveLandingKeepsPole(this)) // PVZU: glove lands with its pole, phase 11 (hook 557)
+		{
+		}
+		else if (aJumpEnds)
 		{
 			mX = static_cast<int>(mPosX);
+			if (pvzu::GameData::Get().Feature("vasePole")) // PVZU: Unnamed vase pole opens the vases of its landing cell (hook 558)
+				pvzu::engine::VasePoleLanded(this);
 			mZombiePhase = ZombiePhase::PHASE_POLEVAULTER_POST_VAULT;
 			mZombieAttackRect = Rect(50, 0, 20, 115);
 
@@ -1867,7 +1949,7 @@ void Zombie::UpdateZombieDolphinRider()
 				mApp->PlayFoley(FoleyType::FOLEY_DOLPHIN_BEFORE_JUMPING);
 				mApp->PlayFoley(FoleyType::FOLEY_PLANT_WATER);
 
-				mVelX = 0.5f;
+				mVelX = pvzu::engine::PoolDolphinJumpVelX(this, 0.5f); // PVZU: football-head Dolphin jumps at 2.0 (hook 559)
 				mZombiePhase = ZombiePhase::PHASE_DOLPHIN_IN_JUMP;
 				mPhaseCounter = DOLPHIN_JUMP_TIME;
 				PlayZombieReanim("anim_dolphinjump", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 0, 10.0f);
@@ -2054,6 +2136,8 @@ void Zombie::UpdateZombieJackInTheBox()
 		if (mPhaseCounter <= 0)
 		{
 			mApp->PlayFoley(FoleyType::FOLEY_EXPLOSION);
+			if (pvzu::engine::FogJackExplodes(this)) // PVZU: ice head freezes the plants, potato head cools the packets (hooks 560-562)
+				return;
 
 			int aPosX = mX + mWidth / 2;
 			int aPosY = mY + mHeight / 2;
@@ -2098,6 +2182,7 @@ void Zombie::UpdateZombieGargantuar()
 			}
 			else
 #endif
+			if (!pvzu::engine::ModGargantuarSmashLands(this)) // PVZU: Unnamed, a zombie in front first; hypnotised never on plants (hook 563)
 			{
 				Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_CHEW);
 				if (aPlant)
@@ -2156,13 +2241,16 @@ void Zombie::UpdateZombieGargantuar()
 		Reanimation* aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
 		if (aBodyReanim->ShouldTriggerTimedEvent(0.74f))
 		{
+			const bool aPvzuHeldImp = mHasObject; // PVZU Plan 9 V1: the staff's first throw is its Imp (0x526f3c NOPed)
 			mHasObject = false;
 			ReanimShowPrefix("Zombie_imp", RENDER_GROUP_HIDDEN);
 			ReanimShowTrack("Zombie_gargantuar_whiterope", RENDER_GROUP_HIDDEN);
 			mApp->PlayFoley(FoleyType::FOLEY_SWING);
 
-			Zombie* aZombieImp = mBoard->AddZombie(ZombieType::ZOMBIE_IMP, mFromWave);
+			Zombie* aZombieImp = pvzu::engine::RoofGargAddThrown(this, aPvzuHeldImp); // PVZU: vanilla AddZombie(ZOMBIE_IMP); Unnamed staff throws 25 types (hook 565)
 			if (aZombieImp == nullptr)
+				return;
+			if (pvzu::engine::RoofThrownLandsAtOnce(this, aZombieImp, aPvzuHeldImp)) // PVZU: a thrown non-Imp has no throw animation
 				return;
 
 			float aMinThrowDistance = 40.0f;
@@ -2171,6 +2259,7 @@ void Zombie::UpdateZombieGargantuar()
 				aThrowingDistance -= 180.0f;
 				aMinThrowDistance = -140.0f;
 			}
+			aThrowingDistance = pvzu::engine::RoofGargThrowDistance(aThrowingDistance, aMinThrowDistance); // PVZU: Unnamed always the minimum (0x527056)
 			if (aThrowingDistance < aMinThrowDistance)
 			{
 				aThrowingDistance = aMinThrowDistance;
@@ -2214,7 +2303,7 @@ void Zombie::UpdateZombieGargantuar()
 
 		if (aBodyReanim->mLoopCount > 0)
 		{
-			mZombiePhase = ZombiePhase::PHASE_ZOMBIE_NORMAL;
+			mZombiePhase = pvzu::engine::RoofGargAfterThrowPhase(this, ZombiePhase::PHASE_ZOMBIE_NORMAL); // PVZU: Unnamed staff keeps throwing (hook 568)
 			StartWalkAnim(20);
 		}
 
@@ -2224,7 +2313,7 @@ void Zombie::UpdateZombieGargantuar()
 	if (IsImmobilizied() || !mHasHead)
 		return;
 
-	if (mHasObject && mBodyHealth < mBodyMaxHealth / 2 && aThrowingDistance > 40.0f)
+	if (mHasObject && mBodyHealth < mBodyMaxHealth / 2 && (aThrowingDistance > 40.0f || pvzu::engine::RoofGargThrowsAnywhere())) // PVZU: Unnamed `jp` -> `jo` (0x527216)
 	{
 		mZombiePhase = ZombiePhase::PHASE_GARGANTUAR_THROWING;
 		PlayZombieReanim("anim_throw", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 24.0f);
@@ -2258,7 +2347,11 @@ void Zombie::UpdateZombieGargantuar()
 	}
 #else
 	bool doSmash = false;
-	if (FindPlantTarget(ZombieAttackType::ATTACKTYPE_CHEW))
+	if (const auto aPvzuSmash = pvzu::engine::ModGargantuarStartsSmash(this)) // PVZU: Unnamed Gargantuar targets (hook 569)
+	{
+		doSmash = *aPvzuSmash;
+	}
+	else if (FindPlantTarget(ZombieAttackType::ATTACKTYPE_CHEW))
 	{
 		doSmash = true;
 	}
@@ -2310,6 +2403,7 @@ void Zombie::UpdateZombieImp()
 		Reanimation* aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
 		if (aBodyReanim->mLoopCount > 0)
 		{
+			pvzu::engine::World7ImpLanded(this); // PVZU: world 7, 1 in 3 lands as a Gargantuar (hook 571)
 			mZombiePhase = ZombiePhase::PHASE_ZOMBIE_NORMAL;
 			StartWalkAnim(0);
 		}
@@ -2354,9 +2448,10 @@ void Zombie::UpdateZombiePeaHead()
 #else
 		Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder, mRow, ProjectileType::PROJECTILE_ZOMBIE_PEA);
 		aProjectile->mMotionType = ProjectileMotion::MOTION_BACKWARDS;
+		pvzu::engine::HeadPeaFired(this, aProjectile, false); // PVZU: hypnotised -> the player's pea (hook 572)
 #endif
 
-		mPhaseCounter = 150;
+		mPhaseCounter = pvzu::engine::PeaHeadNextShot(this, 150); // PVZU: Unnamed fire-rate ramp, 150 - raises (0x7958fe)
 	}
 }
 
@@ -2402,6 +2497,11 @@ void Zombie::UpdateZombieJalapenoHead()
 		mBoard->DoFwoosh(mRow);
 		mBoard->ShakeBoard(3, -4);
 
+		if (pvzu::engine::World7JalapenoBurn(this)) // PVZU: hypnotised: burns the row, melts its ice; else also burns hypnotised zombies (hook 573)
+		{
+			DieNoLoot();
+			return;
+		}
 #ifdef DO_FIX_BUGS
 		if (mMindControlled)
 		{
@@ -2414,7 +2514,7 @@ void Zombie::UpdateZombieJalapenoHead()
 				if (aPlant->mDead)
 					continue;
 				//Rect aPlantRect = aPlant->GetPlantRect();
-				if (aPlant->mRow == mRow && !aPlant->NotOnGround())
+				if (aPlant->mRow == mRow && !aPlant->NotOnGround() && !pvzu::engine::TestCheatPlantSurvives(aPlant)) // PVZU Plan 9 C1
 				{
 					mBoard->mPlantsEaten++;
 					aPlant->Die();
@@ -2427,7 +2527,7 @@ void Zombie::UpdateZombieJalapenoHead()
 			if (aPlant->mDead)
 				continue;
 			//Rect aPlantRect = aPlant->GetPlantRect();
-			if (aPlant->mRow == mRow && !aPlant->NotOnGround())
+			if (aPlant->mRow == mRow && !aPlant->NotOnGround() && !pvzu::engine::TestCheatPlantSurvives(aPlant)) // PVZU Plan 9 C1
 			{
 				mBoard->mPlantsEaten++;
 				aPlant->Die();
@@ -2448,7 +2548,8 @@ void Zombie::UpdateZombieGatlingHead()
 		Reanimation* aHeadReanim = mApp->ReanimationGet(mSpecialHeadReanimID);
 		aHeadReanim->PlayReanim("anim_shooting", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 38.0f);
 	}
-	else if (mPhaseCounter == 18 || mPhaseCounter == 35 || mPhaseCounter == 51 || mPhaseCounter == 68)
+	else if (mPhaseCounter == 18 || mPhaseCounter == 35 || mPhaseCounter == 51 || mPhaseCounter == 68 ||
+		pvzu::engine::GatlingFootballExtraShot(this)) // PVZU: a Gatling-head Football fires 8 more peas (hook 575)
 	{
 		mApp->PlayFoley(FoleyType::FOLEY_THROW);
 
@@ -2474,6 +2575,7 @@ void Zombie::UpdateZombieGatlingHead()
 #else
 		Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder, mRow, ProjectileType::PROJECTILE_ZOMBIE_PEA);
 		aProjectile->mMotionType = ProjectileMotion::MOTION_BACKWARDS;
+		pvzu::engine::HeadPeaFired(this, aProjectile, true); // PVZU: hypnotised pea; 1 in 2 two more peas at +-32 deg (hooks 575/576)
 #endif
 	}
 	else if (mPhaseCounter == 0)
@@ -2486,7 +2588,7 @@ void Zombie::UpdateZombieGatlingHead()
 
 void Zombie::UpdateZombieSquashHead()
 {
-	if (mHasHead && mIsEating && mZombiePhase == ZombiePhase::PHASE_SQUASH_PRE_LAUNCH)
+	if (mHasHead && mZombiePhase == ZombiePhase::PHASE_SQUASH_PRE_LAUNCH && (mIsEating || pvzu::engine::World7SquashWantsJump(this))) // PVZU: jumps once a plant is in reach (hook 577)
 	{
 		StopEating();
 		PlayZombieReanim("anim_idle", ReanimLoopType::REANIM_LOOP, 20, 12.0f);
@@ -2524,6 +2626,7 @@ void Zombie::UpdateZombieSquashHead()
 			}
 		}
 #endif
+		aDestX = pvzu::engine::World7SquashDestX(this, aDestX); // PVZU: Unnamed jumps onto its target (hook 582)
 		int aPosX = PvzpAnimateCurve(50, 20, mPhaseCounter, 0, aDestX - mPosX, PvzpCurves::CURVE_EASE_IN_OUT);
 		int aPosY = PvzpAnimateCurve(50, 20, mPhaseCounter, 0, -20, PvzpCurves::CURVE_EASE_IN_OUT);
 
@@ -2557,6 +2660,7 @@ void Zombie::UpdateZombieSquashHead()
 			}
 		}
 #endif
+		aDestX = pvzu::engine::World7SquashDestX(this, aDestX); // PVZU: Unnamed jumps onto its target (hook 582)
 
 		Reanimation* aHeadReanim = mApp->ReanimationGet(mSpecialHeadReanimID);
 		aHeadReanim->SetPosition(mPosX + 6.0f + aDestX - mPosX, mPosY - 21.0f + aPosY);
@@ -2587,7 +2691,10 @@ void Zombie::UpdateZombieSquashHead()
 				SquishAllInSquare(mBoard->PixelToGridXKeepOnBoard(mX, mY), mRow, ZombieAttackType::ATTACKTYPE_CHEW);
 			}
 #else
-			SquishAllInSquare(mBoard->PixelToGridXKeepOnBoard(mX, mY), mRow, ZombieAttackType::ATTACKTYPE_CHEW);
+			if (!mMindControlled || !pvzu::engine::World7ZombiesOn()) // PVZU: a hypnotised Unnamed Squash head squashes zombies only
+				SquishAllInSquare(pvzu::engine::World7SquashLanded(this, aDestX, mBoard->PixelToGridXKeepOnBoard(mX, mY)), mRow, ZombieAttackType::ATTACKTYPE_CHEW);
+			else
+				pvzu::engine::World7SquashLanded(this, aDestX, 0);
 #endif
 		}
 
@@ -2715,16 +2822,17 @@ void Zombie::UpdateZombieDigger()
 {
 	if (mZombiePhase == ZombiePhase::PHASE_DIGGER_TUNNELING)
 	{
-		if (mPosX < 10.0f)
+		if (mPosX < pvzu::engine::FogDiggerSurfaceX(this, 10.0f)) // PVZU: the screwdriver surfaces at x < 90/170/250 (hook 585)
 		{
 			mAltitude = -120.0f;
-			mZombiePhase = ZombiePhase::PHASE_DIGGER_RISING;
+			mZombiePhase = pvzu::engine::FogDiggerRisePhase(this, ZombiePhase::PHASE_DIGGER_RISING); // PVZU: and walks on (hook 586)
 			mPhaseCounter = 130;
 			PlayZombieReanim("anim_drill", ReanimLoopType::REANIM_LOOP, 0, 20.0f);
 
 			mApp->PlayFoley(FoleyType::FOLEY_DIRT_RISE);
 			mApp->PlayFoley(FoleyType::FOLEY_WAKEUP);
 			AttachmentDetachCrossFadeParticleType(mAttachmentID, ParticleEffect::PARTICLE_DIGGER_TUNNEL, nullptr);
+			pvzu::engine::ModModeDiggerSurfaced(this); // PVZU: mod mode 0x85 (hook 586)
 			StopZombieSound();
 
 			mApp->AddPvzpParticle(mPosX + 60.0f, mPosY + 118.0f, mRenderOrder + 1, ParticleEffect::PARTICLE_DIGGER_RISE);
@@ -2813,6 +2921,8 @@ ZombieID Zombie::SummonBackupDancer(int theRow, int thePosX)
 {
 	if (!mBoard->RowCanHaveZombieType(theRow, ZombieType::ZOMBIE_BACKUP_DANCER))
 		return ZombieID::ZOMBIEID_NULL;
+	if (auto aPvzuFollower = pvzu::engine::SummonNightFollower(this, theRow, thePosX)) // PVZU: 0x104 summons random types (hook 587)
+		return *aPvzuFollower;
 
 	Zombie* aZombie = mBoard->AddZombie(ZombieType::ZOMBIE_BACKUP_DANCER, mFromWave);
 	if (aZombie == nullptr)
@@ -2842,7 +2952,12 @@ ZombieID Zombie::SummonBackupDancer(int theRow, int thePosX)
 	mApp->AddPvzpParticle(aParticleX, aParticleY, aRenderOrder, ParticleEffect::PARTICLE_DANCER_RISE);
 	mApp->PlayFoley(FoleyType::FOLEY_GRAVESTONE_RUMBLE);
 
-	return mBoard->ZombieGetID(aZombie);
+	const ZombieID aPvzuBackupID = mBoard->ZombieGetID(aZombie); // PVZU: taken before the graves may add zombies
+	if (pvzu::GameData::Get().Feature("nightLevels")) // PVZU: Dancer "Death Carnival": every 12th backup raises the graves (0x7966C0)
+	{
+		pvzu::engine::NightOnBackupSummoned(this);
+	}
+	return aPvzuBackupID;
 }
 
 void Zombie::SummonBackupDancers()
@@ -2852,7 +2967,7 @@ void Zombie::SummonBackupDancers()
 
 	for (int i = 0; i < NUM_BACKUP_DANCERS; i++)
 	{
-		if (mBoard->ZombieTryToGet(mFollowerZombieID[i]) == nullptr)
+		if (pvzu::engine::DancerReplacesFollower(this, i)) // PVZU: vanilla `ZombieTryToGet(...) == nullptr`; Unnamed re-summons all four (0xC04030)
 		{
 			int aRow = 0, aPosX = 0;
 			switch (i)
@@ -2954,12 +3069,15 @@ void Zombie::UpdateZombieBackupDancer()
 void Zombie::UpdateZombieDancer()
 {
 	if (mIsEating)
+	{
+		pvzu::engine::V1DancerEating(this); // PVZU: the white summoner summons right after its bite (0xc05510)
 		return;
+	}
 
-	if (mSummonCounter > 0)
+	if (mSummonCounter > 0 || pvzu::engine::DancerSkipsSummonCounterCheck(this)) // PVZU: trophy snaps at every chance (hook 594)
 	{
 		mSummonCounter--;
-		if (mSummonCounter == 0)
+		if (mSummonCounter == 0 || pvzu::engine::DancerSnapsWithoutCountdown()) // PVZU: Unnamed `jne` -> `jo` (0x528CC2)
 		{
 			if (GetDancerFrame() == 12 && mHasHead && mPosX < 700.0f)
 			{
@@ -3055,6 +3173,10 @@ void Zombie::UpdateZombieRiseFromGrave()
 	if (mPhaseCounter == 0)
 	{
 		mZombiePhase = ZombiePhase::PHASE_ZOMBIE_NORMAL;
+		if (pvzu::GameData::Get().Feature("dayLevels")) // PVZU: phase by type after rising (hook 595)
+		{
+			pvzu::engine::UnnamedGraveRisePhase(this);
+		}
 
 		if (IsOnHighGround())
 		{
@@ -3520,6 +3642,8 @@ void Zombie::DropHead(unsigned int theDamageFlags)
 	}
 
 	mHasHead = false;
+	pvzu::engine::SpecialHeadDropped(this); // PVZU: 6-5 sun per kill and plant upgrade (hook 596)
+	pvzu::engine::ModModeHeadDropped(this); // PVZU: mod mode 0x72, the same rule for the Peashooter line
 	SetupReanimForLostHead();
 	if (TestBit(theDamageFlags, DamageFlags::DAMAGE_DOESNT_LEAVE_BODY))
 	{
@@ -3909,6 +4033,8 @@ void Zombie::UpdateDamageStates(unsigned int theDamageFlags)
 {
 	if (!CanLoseBodyParts())
 		return;
+	if (pvzu::engine::Level70BossSkipsDamageStates(this)) // PVZU: the 7-10 boss keeps its arm and head (hook 597)
+		return;
 
 	if (mHasArm && mBodyHealth < 2 * mBodyMaxHealth / 3 && mBodyHealth > 0)
 	{
@@ -4028,12 +4154,14 @@ void Zombie::UpdateZamboni()
 {
 	if (mPosX > 400.0f && !mFlatTires)
 	{
-		mVelX = PvzpAnimateCurveFloat(700, 300, mPosX, 0.25f, 0.05f, PvzpCurves::CURVE_LINEAR);
+		mVelX = pvzu::engine::V1ZamboniVelX(this, PvzpAnimateCurveFloat(700, 300, mPosX, 0.25f, 0.05f, PvzpCurves::CURVE_LINEAR)); // PVZU: 0.25 (0x52a81e)
 	}
 	else if (mFlatTires && mVelX > 0.0005f)
 	{
 		mVelX -= 0.0005f;
 	}
+	if (!mFlatTires)
+		mVelX = pvzu::engine::PoolZamboniVelX(this, mVelX); // PVZU: orange 0.2, red 0.45 (hook 598)
 
 	int anIceX = mPosX + 118;
 	if (mBoard->StageHasRoof())
@@ -4045,7 +4173,7 @@ void Zombie::UpdateZamboni()
 		anIceX = std::max(anIceX, 25);
 	}
 	mBoard->mIceMinX[mRow] = std::min(mBoard->mIceMinX[mRow], anIceX);
-	if (anIceX < 800)
+	if (anIceX < pvzu::engine::PoolZamboniIceMaxX(800)) // PVZU: 933 on Unnamed's wide lawn
 	{
 		mBoard->mIceTimer[mRow] = 3000;
 		if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BOBSLED_BONANZA)
@@ -4088,13 +4216,18 @@ void Zombie::UpdateLadder()
 		if (aBodyReanim->mLoopCount > 0)
 		{
 			Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_LADDER);
-			if (aPlant)
+			if (aPlant && pvzu::engine::RoofLadderPlaces(this, aPlant)) // PVZU: Unnamed shovel digs the plant up instead (hook 600)
+			{
+			}
+			else if (aPlant)
 			{
 				mBoard->AddALadder(aPlant->mPlantCol, aPlant->mRow);
+				pvzu::engine::RoofLadderPlaced(this, aPlant); // PVZU: Unnamed ladder pile calls a Bungee onto the plant (hook 600)
 				mApp->PlaySample(SOUND_LADDER_ZOMBIE);
 				mZombieHeight = ZombieHeight::HEIGHT_UP_LADDER;
 				mUseLadderCol = aPlant->mPlantCol;
-				DetachShield();
+				if (!pvzu::engine::RoofKeepsShieldOnLadder(this)) // PVZU: Unnamed ghost keeps its ladder (hook 601)
+					DetachShield();
 			}
 			else
 			{
@@ -4107,7 +4240,9 @@ void Zombie::UpdateLadder()
 
 void Zombie::UpdateZombieWalking()
 {
-	if (ZombieNotWalking())
+	if (ZombieNotWalking() || pvzu::engine::ZombiesStopped()) // PVZU: Unnamed STOP (hook 603, flag 0x800250)
+		return;
+	if (pvzu::engine::Level70BossPinsWalk(this)) // PVZU: the 7-10 boss stays at x 640 (hook 603)
 		return;
 
 	Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
@@ -4145,7 +4280,7 @@ void Zombie::UpdateZombieWalking()
 		{
 			mPosX += aSpeed;
 		}
-		else
+		else if (!pvzu::engine::ModModeZombieWalk(this, aSpeed)) // PVZU: mod mode 0x6d scripted path (hook 604)
 		{
 			mPosX -= aSpeed;
 		}
@@ -4250,6 +4385,9 @@ void Zombie::CheckForZombieStep()
 	{
 		CheckSquish(ZombieAttackType::ATTACKTYPE_DRIVE_OVER);
 	}
+	pvzu::engine::CoinStep(this); // PVZU: a crippled silver-coin head squishes plants (hook 614)
+	pvzu::engine::NightZombieStep(this); // PVZU: the gold Football squishes plants (0xC034F9)
+	pvzu::engine::V1ZombieStep(this); // PVZU: the garlic Pogo squishes plants (hook 614 -> 0x95b010)
 }
 
 void Zombie::UpdateZombiePosition()
@@ -4271,16 +4409,19 @@ void Zombie::UpdateZombiePosition()
 		}
 	}
 
-	if (mZombieHeight == ZombieHeight::HEIGHT_ZOMBIE_NORMAL)
+	if (pvzu::engine::ModModeZombieRowStep(this)) // PVZU: mod mode 0x75 (hook 615)
+	{
+	}
+	else if (mZombieHeight == ZombieHeight::HEIGHT_ZOMBIE_NORMAL)
 	{
 		float aDesiredY = GetPosYBasedOnRow(mRow);
 		if (mPosY < aDesiredY)
 		{
-			mPosY += std::min(aDesiredY - mPosY, 1.0f);
+			mPosY += pvzu::engine::ModModeZombieYStep(this, aDesiredY - mPosY); // PVZU: min(gap, 1); 0x6d 0.1875 (hooks 616/617)
 		}
 		else if (mPosY > aDesiredY)
 		{
-			mPosY -= std::min(mPosY - aDesiredY, 1.0f);
+			mPosY -= pvzu::engine::ModModeZombieYStep(this, mPosY - aDesiredY);
 		}
 	}
 }
@@ -4309,6 +4450,12 @@ void Zombie::Update()
 {
 	PVZP_ASSERT(!mDead);
 
+	pvzu::engine::EliteUpdate(this); // PVZU: Flag sun drain, phonograph/pumpkin auras (hook 618; reads the age before ++)
+	pvzu::engine::RoofGarlicPoison(this); // PVZU: Unnamed Garlic aura, 1 damage / 40 cs (hook 618 -> 0x7953c3)
+	pvzu::engine::RoofZombieTick(this); // PVZU: Unnamed ghost ladder teleports on its 2nd tick (hook 619)
+	pvzu::engine::ModZombieStatusTick(this); // PVZU: Repeater and Toxic poison (hook 618 -> 0xc10cd0, 0x7a6740)
+	pvzu::engine::WallnutZombieCopyTick(this); // PVZU: Wall-nut Zombie copies itself after 36 s unhurt (hook 618 -> 0x7971ea)
+	pvzu::engine::TallnutZombieTick(this); // PVZU: Tall-nut Zombie regeneration + 0x101 summon (hook 618 -> 0x79729c)
 	mZombieAge++;
 	bool doUpdate = false;
 	if (mApp->mGameScene == GameScenes::SCENE_LEVEL_INTRO && mZombieType == ZombieType::ZOMBIE_BOSS)
@@ -4358,6 +4505,7 @@ void Zombie::Update()
 			else if (IsOnBoard())
 			{
 				UpdatePlaying();
+				pvzu::engine::PoolZombieTick(this); // PVZU: Zomboni freezes plants for good, orange -> red (hooks 620, 613)
 			}
 
 			if (mZombieType == ZombieType::ZOMBIE_BUNGEE)
@@ -4396,6 +4544,7 @@ void Zombie::Update()
 		AttachmentUpdateAndMove(mAttachmentID, mPosX, mPosY);
 		UpdateReanim();
 	}
+	pvzu::engine::DebugLogZombie(this, static_cast<int>(mZombieType), mRow, mFromWave, mPosX, mZombieAge); // PVZU: -pvzu-log-zombies
 }
 
 void Zombie::UpdateClimbingLadder()
@@ -4431,6 +4580,7 @@ void Zombie::UpdateClimbingLadder()
 
 void Zombie::UpdateActions()
 {
+	pvzu::engine::ModZombieWeakenTick(this); // PVZU: weakened -1 (hook 622 -> 0x95a140)
 	if (mZombieHeight == ZombieHeight::HEIGHT_UP_LADDER)
 	{
 		UpdateClimbingLadder();
@@ -4508,7 +4658,7 @@ void Zombie::UpdateActions()
 	{
 		UpdateYeti();
 	}
-	if (mZombieType == ZombieType::ZOMBIE_DANCER)
+	if (mZombieType == ZombieType::ZOMBIE_DANCER && !pvzu::engine::SkipsDancerUpdate(this)) // PVZU: the bald moonwalker never dances (hook 625)
 	{
 		UpdateZombieDancer();
 	}
@@ -4528,7 +4678,7 @@ void Zombie::UpdateActions()
 	{
 		UpdateZombieJalapenoHead();
 	}
-	if (mZombieType == ZombieType::ZOMBIE_GATLING_HEAD)
+	if (pvzu::engine::RunsGatlingHeadUpdate(this, mZombieType == ZombieType::ZOMBIE_GATLING_HEAD)) // PVZU: Gatling-head Football, not while rising (hook 628)
 	{
 		UpdateZombieGatlingHead();
 	}
@@ -4560,13 +4710,13 @@ void Zombie::CheckForBoardEdge()
 		aEdgeX = -130;
 	}
 
-	if (mX <= aEdgeX && mHasHead)
+	if (mX <= aEdgeX && mHasHead && !pvzu::engine::RoofThrownImpSkipsHouse(this)) // PVZU: Unnamed thrown Imp (hook 630)
 	{
 		if (mApp->IsIZombieLevel())
 		{
 			DieNoLoot();
 		}
-		else
+		else if (!pvzu::engine::DoorClosed()) // PVZU: Unnamed "close the door" (hook 630, flag 0x8001a4)
 		{
 			mBoard->ZombiesWon(this);
 		}
@@ -4630,7 +4780,8 @@ void Zombie::UpdatePlaying()
 	}
 	if (mButteredCounter > 0)
 	{
-		mButteredCounter--;
+		if (!pvzu::engine::Level70BossButterTick(this)) // PVZU: 30000+ cs butter is cut on a boss-class zombie (hook 631)
+			mButteredCounter--;
 		if (mButteredCounter == 0)
 		{
 			RemoveButter();
@@ -4647,7 +4798,8 @@ void Zombie::UpdatePlaying()
 	{
 		UpdateActions();
 		UpdateZombiePosition();
-		CheckIfPreyCaught();
+		for (int aPvzuCheck = pvzu::engine::PreyChecksPerTick(this); aPvzuCheck > 0; --aPvzuCheck) // PVZU: mad Newspaper x3 (hook 632)
+			CheckIfPreyCaught();
 		CheckForPool();
 		CheckForHighGround();
 		CheckForBoardEdge();
@@ -4711,6 +4863,8 @@ void Zombie::ShowYuckyFace(bool theShow)
 {
 	Reanimation* aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
 	if (aBodyReanim == nullptr)
+		return;
+	if (!pvzu::engine::ShowsYuckyFace(this)) // PVZU: elites keep their head art (hook 634)
 		return;
 
 	if (HasYuckyFaceImage())
@@ -4832,10 +4986,23 @@ void Zombie::AnimateChewSound()
 	Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_CHEW);
 	if (aPlant)
 	{
-		if (aPlant->mSeedType == SeedType::SEED_HYPNOSHROOM && !aPlant->mIsAsleep)
+		if (aPlant->mSeedType == SeedType::SEED_HYPNOSHROOM && !aPlant->mIsAsleep && !pvzu::engine::ModPlantEatenAsPlain(aPlant)) // PVZU: not a Hallucination-shroom
 		{
 			mApp->PlayFoley(FoleyType::FOLEY_FLOOP);
 			aPlant->Die();
+
+			// PVZU: Unnamed "Void Myth": a hypnotised Normal/Cone/Bucket/Door/Peashooter/Gatling zombie drops its helmet
+			// and gets a new 1200 HP bucket (hook 636; TakeDamage(helm HP, 1) then helm = pail, anim_bucket shown)
+			if (pvzu::unnamed::HypnoGivesBucket(static_cast<int>(mZombieType)))
+			{
+				TakeDamage(mHelmHealth, 1U);
+				mHelmType = HelmType::HELMTYPE_PAIL;
+				mHelmHealth = pvzu::unnamed::HypnoBucketHp();
+				mHelmMaxHealth = mHelmHealth;
+				ReanimShowPrefix("anim_bucket", RENDER_GROUP_NORMAL);
+				pvzu::unnamed::LogPlantAbility(static_cast<int>(mBoard->mMainCounter), std::format("HYPNOSHROOM col {} row {}: hypno.bucket zombie type {} helm {}",
+					aPlant->mPlantCol, aPlant->mRow, static_cast<int>(mZombieType), mHelmHealth));
+			}
 
 			StartMindControlled();
 			mApp->AddPvzpParticle(mPosX + 60.0f, mPosY + 40.0f, mRenderOrder + 1, ParticleEffect::PARTICLE_MIND_CONTROL);
@@ -4845,7 +5012,7 @@ void Zombie::AnimateChewSound()
 			mAnimTicksPerFrame = 18;
 			UpdateAnimSpeed();
 		}
-		else if (aPlant->mSeedType == SeedType::SEED_GARLIC)
+		else if (aPlant->mSeedType == SeedType::SEED_GARLIC && !pvzu::engine::SkipsGarlic(this)) // PVZU: football head ignores Garlic (hook 637)
 		{
 			if (!mYuckyFace)
 			{
@@ -4929,6 +5096,14 @@ void Zombie::AnimateChewEffect()
 		}
 
 		aPlant->mEatenFlashCountdown = std::max(aPlant->mEatenFlashCountdown, 25);
+		pvzu::engine::NightChewEffect(this, aPlant); // PVZU: knife marks the plant (hook 639), green Football helmet (hook 640)
+		pvzu::engine::ModPlantChewed(this, aPlant); // PVZU: shadowed Charmed Tall-nut bites back (0xc021ad)
+		if (const int aPvzuThorns = pvzu::unnamed::TallnutThornsDamage(pvzu::engine::ModSeedOf(aPlant)); aPvzuThorns > 0) // PVZU: Unnamed Tall-nut thorns (0x796747; raw 0x17 only, 0xc02203)
+		{
+			TakeDamage(aPvzuThorns, pvzu::unnamed::TallnutThornsFlags());
+			pvzu::unnamed::LogPlantAbility(static_cast<int>(mBoard->mMainCounter), std::format("TALLNUT col {} row {}: tallnut.thorns {} to zombie type {} (body {})",
+				aPlant->mPlantCol, aPlant->mRow, aPvzuThorns, static_cast<int>(mZombieType), mBodyHealth));
+		}
 	}
 }
 
@@ -5019,6 +5194,7 @@ void Zombie::Animate()
 			mAnimCounter = 0;
 		}
 		mFrame = mAnimCounter / mAnimTicksPerFrame;
+		pvzu::engine::GreenFootballWalkTick(this); // PVZU: green Football after 8 s: helmet, Gatling head, +1000, speed refresh (hook 640)
 	}
 }
 
@@ -5102,6 +5278,8 @@ bool Zombie::IsWalkingBackwards()
 		return false;
 	}
 
+	if (pvzu::engine::ModModeWalksBackwards(this)) // PVZU: mod mode 0x7e (hook 642)
+		return true;
 	return mZombieType == ZombieType::ZOMBIE_YETI && !mHasObject;
 }
 
@@ -5662,6 +5840,7 @@ void Zombie::DrawReanim(Graphics* g, const ZombieDrawPosition& theDrawPos, int t
 #endif
 		return;
 	}
+	pvzu::engine::NightBeforeDraw(this, aBodyReanim); // PVZU: the random summoner is drawn white (hook 649)
 
 	if (theDrawPos.mClipHeight > CLIP_HEIGHT_LIMIT)
 	{
@@ -5719,6 +5898,10 @@ void Zombie::DrawReanim(Graphics* g, const ZombieDrawPosition& theDrawPos, int t
 		aExtraAdditiveColor = aColorOverride;
 		aEnableExtraAdditiveDraw = true;
 	}
+	pvzu::engine::TallnutZombieTint(this, aColorOverride, aExtraAdditiveColor, aEnableExtraAdditiveDraw); // PVZU: 0x101 purple, alpha 176 (0xc03360)
+	pvzu::engine::ModZombieTint(this, aColorOverride, aExtraAdditiveColor, aEnableExtraAdditiveDraw); // PVZU: Repeater poison green, weakened grey (0x52d2bf chain)
+	pvzu::engine::PoolTint(this, aColorOverride.mRed, aColorOverride.mGreen, aColorOverride.mBlue); // PVZU: orange/red Zomboni (hook 647)
+	pvzu::engine::RoofTint(this, aColorOverride.mAlpha); // PVZU: Unnamed ghost ladder drawn at alpha 128 (hook 647)
 	if (mJustGotShotCounter > 0 && !IsBobsledTeamWithSled())
 	{
 		int aGrayness = mJustGotShotCounter * 10;
@@ -5749,7 +5932,7 @@ void Zombie::DrawReanim(Graphics* g, const ZombieDrawPosition& theDrawPos, int t
 		aBodyReanim->DrawRenderGroup(g, theBaseRenderGroup);
 	}
 
-	if (mShieldType != ShieldType::SHIELDTYPE_NONE)
+	if (mShieldType != ShieldType::SHIELDTYPE_NONE || pvzu::engine::Level70BossDrawsShield(this)) // PVZU: 7-10 boss paper / Gatling head (hook 650)
 	{
 		if (mZombiePhase == ZombiePhase::PHASE_ZOMBIE_BURNED)
 		{
@@ -5782,7 +5965,8 @@ void Zombie::DrawReanim(Graphics* g, const ZombieDrawPosition& theDrawPos, int t
 		g->mTransX -= aShieldHitOffset;
 	}
 
-	if (mShieldType == ShieldType::SHIELDTYPE_NEWSPAPER || mShieldType == ShieldType::SHIELDTYPE_DOOR || mShieldType == ShieldType::SHIELDTYPE_LADDER)
+	if (mShieldType == ShieldType::SHIELDTYPE_NEWSPAPER || mShieldType == ShieldType::SHIELDTYPE_DOOR || mShieldType == ShieldType::SHIELDTYPE_LADDER ||
+		pvzu::engine::Level70BossHandsOver(this)) // PVZU: 7-10 boss hands over its paper while reading (hook 651)
 	{
 		aBodyReanim->mColorOverride = aColorOverride;
 		aBodyReanim->mExtraAdditiveColor = aExtraAdditiveColor;
@@ -5880,7 +6064,7 @@ void Zombie::DrawBungeeCord(Graphics* g, int theOffsetX)
 
 		if (mTargetCol > aBoss->mTargetCol)
 		{
-			g->SetClipRect(Rect(-g->mTransX, aClipAmount - g->mTransY, BOARD_WIDTH, BOARD_HEIGHT));
+			g->SetClipRect(Rect(-g->mTransX, aClipAmount - g->mTransY, pvzu::CurrentLayout().width, BOARD_HEIGHT)); // PVZU: whole wide screen
 			aSetClip = true;
 		}
 	}
@@ -6351,9 +6535,15 @@ bool Zombie::CanTargetPlant(Plant* thePlant, ZombieAttackType theAttackType)
 
 	if (thePlant->NotOnGround() || thePlant->mSeedType == SeedType::SEED_TANGLEKELP)
 		return false;
+	if (thePlant->mPvzu.modSeed != 0) // PVZU: Bowling Wall-nut is never eaten (hook 676), Rewind Grass never touched
+		if (const auto aPvzuMod = pvzu::engine::ModCanTargetPlant(thePlant))
+			return *aPvzuMod;
 
 	if (!mInPool && mBoard->IsPoolSquare(thePlant->mPlantCol, thePlant->mRow))
 		return false;
+
+	if (const auto aPvzuTarget = pvzu::engine::FogCanTargetPlant(this, thePlant, theAttackType)) // PVZU: Digger bites from underground (hook 654), flying Balloon skips nuts (hook 676)
+		return *aPvzuTarget;
 
 	if (mZombiePhase == ZombiePhase::PHASE_DIGGER_TUNNELING)
 	{
@@ -6383,9 +6573,12 @@ bool Zombie::CanTargetPlant(Plant* thePlant, ZombieAttackType theAttackType)
 		}
 	}
 
+	if (const auto aPvzuPile = pvzu::engine::RoofCanTargetPlant(this, thePlant, theAttackType)) // PVZU: Unnamed ladder pile (0xc02c90)
+		return *aPvzuPile;
+
 	if (mZombiePhase == ZombiePhase::PHASE_LADDER_CARRYING || mZombiePhase == ZombiePhase::PHASE_LADDER_PLACING)
 	{
-		bool aPlaceLadder = false;
+		bool aPlaceLadder = pvzu::engine::RoofLadderTargetsAnyPlant(this); // PVZU: vanilla false; Unnamed shovel / pile: any plant (hook 655)
 		if (thePlant->mSeedType == SeedType::SEED_WALLNUT || thePlant->mSeedType == SeedType::SEED_TALLNUT || thePlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
 		{
 			aPlaceLadder = true;
@@ -6490,7 +6683,15 @@ void Zombie::SquishAllInSquare(int theX, int theY, ZombieAttackType theAttackTyp
 				continue;
 			}
 
-			if (aPlant->mSeedType != SeedType::SEED_SPIKEROCK)
+			if (pvzu::engine::FogSquish(this, aPlant)) // PVZU: Unnamed Pumpkin smashed explodes (cave 0x6519fd); Cactus run over -> Spikeweed (0x6519c0)
+				continue;
+			if (pvzu::unnamed::TallnutSmashed(pvzu::engine::ModSeedOf(aPlant), mZombieType)) // PVZU: Unnamed Tall-nut takes 2400 instead (cave 0x651A45; raw 0x17, not Charmed)
+			{
+				aPlant->mPlantHealth -= pvzu::unnamed::TallnutSmashDamage();
+				pvzu::unnamed::LogPlantAbility(static_cast<int>(mBoard->mMainCounter), std::format("TALLNUT col {} row {}: tallnut.smashed by zombie type {} hp {}",
+					aPlant->mPlantCol, aPlant->mRow, static_cast<int>(mZombieType), aPlant->mPlantHealth));
+			}
+			else if (aPlant->mSeedType != SeedType::SEED_SPIKEROCK)
 			{
 				mBoard->mPlantsEaten++;
 				aPlant->Squish();
@@ -6639,6 +6840,10 @@ void Zombie::ApplyAnimRate(float theAnimRate)
 	Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
 	if (aBodyReanim)
 	{
+		theAnimRate = pvzu::engine::EliteAnimRate(this, theAnimRate); // PVZU: sticky note x3, pumpkin x1/3 (hook 662)
+		theAnimRate = pvzu::engine::NightAnimRate(this, theAnimRate); // PVZU: mad knife x1/3 (0x901DB5)
+		theAnimRate = pvzu::engine::ModModeAnimRate(this, theAnimRate); // PVZU: mod mode 0x6c (hook 662 -> 0x7a6b80)
+		theAnimRate = pvzu::engine::RoofAnimRate(this, theAnimRate); // PVZU: Unnamed ladder pile x1.6 / x3, ghost x2 (hook 662)
 		aBodyReanim->mAnimRate = IsMovingAtChilledSpeed() ? theAnimRate * 0.5f : theAnimRate;
 	}
 }
@@ -6692,6 +6897,7 @@ void Zombie::UpdateAnimSpeed()
 			{
 				float aOneOverSpeed = aBodyReanim->mFrameCount / aDistance;
 				float aAnimRate = mVelX * aOneOverSpeed * 47.0f / mScaleZombie;
+				aAnimRate = pvzu::engine::NightWalkRate(this, aAnimRate); // PVZU: football head / gold x1.5, green by HP (hook 663)
 				ApplyAnimRate(aAnimRate);
 			}
 		}
@@ -6732,7 +6938,7 @@ void Zombie::StartEating()
 	}
 	else if (mZombiePhase == ZombiePhase::PHASE_NEWSPAPER_MAD)
 	{
-		PlayZombieReanim("anim_eat_nopaper", ReanimLoopType::REANIM_LOOP, 20, 0.0f);
+		PlayZombieReanim(pvzu::engine::NewspaperAnim(this, "anim_eat_nopaper"), ReanimLoopType::REANIM_LOOP, 20, 0.0f); // PVZU: knife anim_eat_nopaper1
 	}
 	else
 	{
@@ -6755,6 +6961,8 @@ void Zombie::StartWalkAnim(int theBlendTime)
 		return;
 
 	PickRandomSpeed();
+	if (pvzu::engine::MoonwalkStartWalk(this)) // PVZU: the bald moonwalker keeps moonwalking (hook 668)
+		return;
 	if (mZombiePhase == ZombiePhase::PHASE_LADDER_CARRYING)
 	{
 		PlayZombieReanim("anim_ladderwalk", ReanimLoopType::REANIM_LOOP, theBlendTime, 0.0f);
@@ -6820,6 +7028,8 @@ void Zombie::StopEating()
 
 void Zombie::CheckIfPreyCaught()
 {
+	if (pvzu::engine::Level70BossNoPrey(this)) // PVZU: the 7-10 boss eats nothing (hook 673)
+		return;
 	if (mZombieType == ZombieType::ZOMBIE_BUNGEE ||
 		mZombieType == ZombieType::ZOMBIE_GARGANTUAR ||
 		mZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR ||
@@ -6857,7 +7067,7 @@ void Zombie::CheckIfPreyCaught()
 		IsTangleKelpTarget() ||
 		mZombieHeight == ZombieHeight::HEIGHT_FALLING ||
 		!mHasHead ||
-		IsFlying())
+		(IsFlying() && !pvzu::engine::FogFlyerEats(this))) // PVZU: Unnamed Balloons eat while flying (patch 0x52f63e)
 		return;
 
 	int aTicksBetweenEats = TICKS_BETWEEN_EATS;
@@ -6865,7 +7075,7 @@ void Zombie::CheckIfPreyCaught()
 	{
 		aTicksBetweenEats *= 2;
 	}
-	if (mZombieAge % aTicksBetweenEats != 0)
+	if (!pvzu::engine::BitesThisTick(this, aTicksBetweenEats)) // PVZU: vanilla `mZombieAge % aTicksBetweenEats != 0`; Flag bites 3x (hook 672)
 	{
 		return;
 	}
@@ -6877,7 +7087,7 @@ void Zombie::CheckIfPreyCaught()
 		return;
 	}
 
-	if (!mMindControlled)
+	if ((!mMindControlled || pvzu::engine::ModModeHypnoEatsPlants(this)) && pvzu::engine::EatsPlants(this)) // PVZU: the sticky note never bites plants (hook 675); mod mode 0x85 (hook 674)
 	{
 		Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_CHEW);
 		if (aPlant)
@@ -7052,11 +7262,15 @@ void Zombie::EatPlant(Plant* thePlant)
 	}
 
 	StartEating();
+	if (pvzu::engine::ModModeZombieBites(this, thePlant)) // PVZU: mod mode 0x6a pushes the plant (hook 679)
+		return;
+	if (pvzu::engine::RoofBiteImmune(this, thePlant)) // PVZU: Unnamed Marigold is chewed without harm (hook 680)
+		return;
 	if (thePlant->mSeedType == SeedType::SEED_JALAPENO ||
 		thePlant->mSeedType == SeedType::SEED_CHERRYBOMB ||
 		thePlant->mSeedType == SeedType::SEED_DOOMSHROOM ||
 		thePlant->mSeedType == SeedType::SEED_ICESHROOM ||
-		thePlant->mSeedType == SeedType::SEED_HYPNOSHROOM ||
+		(thePlant->mSeedType == SeedType::SEED_HYPNOSHROOM && !pvzu::engine::ModPlantEatenAsPlain(thePlant)) /* PVZU: Hallucination-shroom */ ||
 		thePlant->mState == PlantState::STATE_FLOWERPOT_INVULNERABLE ||
 		thePlant->mState == PlantState::STATE_LILYPAD_INVULNERABLE ||
 		thePlant->mState == PlantState::STATE_SQUASH_LOOK ||
@@ -7100,7 +7314,19 @@ void Zombie::EatPlant(Plant* thePlant)
 		}
 	}
 
-	thePlant->mPlantHealth -= DAMAGE_PER_EAT;
+	pvzu::engine::RoofGarlicBitten(this, thePlant); // PVZU: Unnamed Garlic chills +250 and 1/250 hypnotises (cave 0x651374)
+	if (pvzu::engine::FogPumpkinBitten(this, thePlant)) // PVZU: Unnamed Pumpkin at <= 72 HP explodes as a Cherry Bomb (cave 0x6513b6)
+		return;
+	if (pvzu::engine::EliteEatPlant(this, thePlant)) // PVZU: silver coin finishes a plant at <= 8 HP and copies itself (hook 686)
+		return;
+	pvzu::engine::V1GreenFootballBite(this, thePlant); // PVZU: the green Football bites harder as it is hurt (0xc12f40)
+	if (pvzu::engine::SkipsNormalBite(this) && !pvzu::engine::V1KnifeBitesAnyway(this, thePlant)) // PVZU: the knife never bites for 4; its chew kills (0xC02730); not while reading, frozen (0x651210)
+	{
+		thePlant->mRecentlyEatenCountdown = 50;
+		return;
+	}
+	thePlant->mPlantHealth -= pvzu::engine::ModPlantBitten(this, thePlant, // PVZU: Charmed Tall-nut summons (0x950000)
+		pvzu::engine::RoofBiteDamage(this, thePlant, DAMAGE_PER_EAT)); // PVZU: Unnamed ghost ladder one-bites (hook 790)
 	thePlant->mRecentlyEatenCountdown = 50;
 	if (mApp->IsIZombieLevel() && mJustGotShotCounter < -500)
 	{
@@ -7112,10 +7338,31 @@ void Zombie::EatPlant(Plant* thePlant)
 
 	if (thePlant->mPlantHealth <= 0)
 	{
+		// PVZU: Unnamed "Frost Armour": an awake Puff-shroom (Sea-shroom) eaten to death freezes its eater 23% (39%),
+		// HitIceTrap then chill 750 cs (hook 688). The roll is only drawn for an awake Puff/Sea-shroom.
+		if (pvzu::unnamed::NightPlantsOn() && !thePlant->mIsAsleep && thePlant->mPvzu.modSeed == 0 && // PVZU: raw seeds 8 / 0x18 only
+			(thePlant->mSeedType == SeedType::SEED_PUFFSHROOM || thePlant->mSeedType == SeedType::SEED_SEASHROOM) &&
+			pvzu::unnamed::PuffFreezesEater(static_cast<int>(thePlant->mSeedType), false, Sexy::Rand(pvzu::unnamed::PuffFreezeRollRange())))
+		{
+			HitIceTrap();
+			mChilledCounter = pvzu::unnamed::PuffFreezeChillCs();
+			pvzu::unnamed::LogPlantAbility(static_cast<int>(mBoard->mMainCounter), std::format("{} col {} row {}: puff.freezeEater zombie type {} iceTrap {} cs chill {} cs body {}",
+				thePlant->mSeedType == SeedType::SEED_PUFFSHROOM ? "PUFFSHROOM" : "SEASHROOM", thePlant->mPlantCol, thePlant->mRow,
+				static_cast<int>(mZombieType), mIceTrapCounter, mChilledCounter, mBodyHealth));
+		}
+
+		if (thePlant->mPvzu.modSeed != 0) // PVZU: hook 688 -> 0x7a65b0: Toxic Shadow-shroom poisons its eater, Hallucination-shroom
+		{                                 // turns it into an Imp (0x7a65eb)
+			pvzu::engine::ShadowPlantEatenToDeath(this, thePlant);
+			pvzu::engine::ModPlantEatenToDeath(this, thePlant);
+		}
 		mApp->PlaySample(SOUND_GULP);
 
 		mBoard->mPlantsEaten++;
-		thePlant->Die();
+		{
+			pvzu::engine::PlantDeathCauseScope aPvzuCause(pvzu::unnamed::PlantDeathCause::EATEN); // PVZU: glove Pole leap (hook 361)
+			thePlant->Die();
+		}
 		mBoard->mChallenge->ZombieAtePlant(thePlant);
 
 		if (mBoard->mLevel >= 2 && mBoard->mLevel <= 4 && mApp->IsFirstTimeAdventureMode())
@@ -7130,7 +7377,7 @@ void Zombie::EatPlant(Plant* thePlant)
 
 void Zombie::EatZombie(Zombie* theZombie)
 {
-	theZombie->TakeDamage(DAMAGE_PER_EAT, 9U);
+	theZombie->TakeDamage(pvzu::engine::EatZombieDamage(this, theZombie, DAMAGE_PER_EAT), pvzu::engine::EatZombieFlags(9U)); // PVZU: hook 689
 	StartEating();
 	if (theZombie->mBodyHealth <= 0)
 	{
@@ -7431,6 +7678,11 @@ void Zombie::DieNoLoot()
 
 	mDead = true;
 	TrySpawnLevelAward();
+	pvzu::engine::EliteOnDeath(this); // PVZU: dancer head summons dancers, umbrella leaf calls 3 bungees (hook 691)
+	if (pvzu::GameData::Get().Feature("nightLevels")) // PVZU: a gold Football raises a Football from every grave (0xC03520)
+	{
+		pvzu::engine::NightOnZombieDied(this);
+	}
 	if (mZombieType == ZombieType::ZOMBIE_BOBSLED)
 	{
 		BobsledDie();
@@ -7537,6 +7789,14 @@ void Zombie::ApplyChill(bool theIsIceTrap)
 	}
 	mChilledCounter = std::max(aChillTime, mChilledCounter);
 
+	// PVZU: Unnamed every chill also deals 10 body damage while the zombie has its arm (hook 692, site 0x5309e4)
+	if (const int aPvzuArmDamage = pvzu::unnamed::ChillArmBodyDamage(mHasArm); aPvzuArmDamage > 0)
+	{
+		TakeBodyDamage(aPvzuArmDamage, pvzu::unnamed::ChillArmDamageFlags());
+		pvzu::unnamed::LogPlantAbility(static_cast<int>(mBoard->mMainCounter), std::format("CHILL zombie type {} row {}: chill.armBodyDamage {} body {}",
+			static_cast<int>(mZombieType), mRow, aPvzuArmDamage, mBodyHealth));
+	}
+
 	UpdateAnimSpeed();
 }
 
@@ -7569,7 +7829,7 @@ void Zombie::DropShield(unsigned int theDamageFlags)
 		}
 
 		mZombiePhase = ZombiePhase::PHASE_NEWSPAPER_MADDENING;
-		PlayZombieReanim("anim_gasp", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 10, 8.0f);
+		PlayZombieReanim(pvzu::engine::NewspaperAnim(this, "anim_gasp"), ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 10, 8.0f); // PVZU: knife anim_gasp1
 		DetachShield();
 
 		if (!TestBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_DOESNT_LEAVE_BODY)))
@@ -7598,11 +7858,13 @@ void Zombie::DropShield(unsigned int theDamageFlags)
 		}
 	}
 
-	mShieldType = ShieldType::SHIELDTYPE_NONE;
+	if (!pvzu::engine::RoofKeepsLadderShield(this)) // PVZU: Unnamed ladder pile keeps the spare it just took (hook 694)
+		mShieldType = ShieldType::SHIELDTYPE_NONE;
 }
 
 int Zombie::TakeShieldDamage(int theDamage, unsigned int theDamageFlags)
 {
+	pvzu::engine::AlmanacPaperHit(this); // PVZU: Almanac paper, +15 body per paper hit (hook 695)
 	if (!TestBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_DOESNT_CAUSE_FLASH)))
 	{
 		mShieldJustGotShotCounter = 25;
@@ -7629,7 +7891,7 @@ int Zombie::TakeShieldDamage(int theDamage, unsigned int theDamageFlags)
 	}
 
 	int aDamageIndexAfterDamage = GetShieldDamageIndex();
-	if (aDamageIndexAfterDamage != aDamageIndexBeforeDamage)
+	if (aDamageIndexAfterDamage != aDamageIndexBeforeDamage && !pvzu::engine::SkipsShieldDamageImages(this) && !pvzu::engine::RoofSkipsShieldDamageImages(this)) // PVZU: Tall-nut door, Unnamed shovel keep their image (hook 696)
 	{
 		Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
 		if (mShieldType == ShieldType::SHIELDTYPE_DOOR && aDamageIndexAfterDamage == 1)
@@ -7693,8 +7955,8 @@ void Zombie::DropHelm(unsigned int theDamageFlags)
 	}
 	else if (mHelmType == HelmType::HELMTYPE_FOOTBALL)
 	{
-		GetTrackPosition("zombie_football_helmet", aPosX, aPosY);
-		ReanimShowPrefix("zombie_football_helmet", RENDER_GROUP_HIDDEN);
+		GetTrackPosition(pvzu::engine::FootballHelmTrack(this), aPosX, aPosY); // PVZU: anim_football on a non-Football (hook 697)
+		ReanimShowPrefix(pvzu::engine::FootballHelmTrack(this), RENDER_GROUP_HIDDEN);
 		ReanimShowPrefix("anim_hair", RENDER_GROUP_NORMAL);
 		aEffect = ParticleEffect::PARTICLE_ZOMBIE_HELMET;
 	}
@@ -7773,12 +8035,12 @@ int Zombie::TakeHelmDamage(int theDamage, unsigned int theDamageFlags)
 		else if (mHelmType == HelmType::HELMTYPE_FOOTBALL && aDamageIndexAfterDamage == 1)
 		{
 			PVZP_ASSERT(aBodyReanim);
-			aBodyReanim->SetImageOverride("zombie_football_helmet", IMAGE_REANIM_ZOMBIE_FOOTBALL_HELMET2);
+			aBodyReanim->SetImageOverride(pvzu::engine::FootballHelmTrack(this), pvzu::engine::HelmDamageImage(this, 1, IMAGE_REANIM_ZOMBIE_FOOTBALL_HELMET2)); // PVZU: green helmet; anim_football (hook 699)
 		}
 		else if (mHelmType == HelmType::HELMTYPE_FOOTBALL && aDamageIndexAfterDamage == 2)
 		{
 			PVZP_ASSERT(aBodyReanim);
-			aBodyReanim->SetImageOverride("zombie_football_helmet", IMAGE_REANIM_ZOMBIE_FOOTBALL_HELMET3);
+			aBodyReanim->SetImageOverride(pvzu::engine::FootballHelmTrack(this), pvzu::engine::HelmDamageImage(this, 2, IMAGE_REANIM_ZOMBIE_FOOTBALL_HELMET3)); // PVZU: green helmet; anim_football (hook 699)
 		}
 		else if (mHelmType == HelmType::HELMTYPE_WALLNUT && aDamageIndexAfterDamage == 1)
 		{
@@ -7824,6 +8086,10 @@ int Zombie::TakeFlyingDamage(int theDamage, unsigned int theDamageFlags)
 
 void Zombie::TakeBodyDamage(int theDamage, unsigned int theDamageFlags)
 {
+	pvzu::engine::RoofBodyDamageHitsLadder(this, theDamage); // PVZU: Unnamed ladder pile: its ladder takes half (hook 702)
+	if (pvzu::engine::PaperSoaksBodyDamage(this, theDamage)) // PVZU: reading football head: the paper takes it (hook 702)
+		theDamage = 0;
+	theDamage = pvzu::engine::PoolBodyDamage(this, theDamage); // PVZU: orange Zomboni armour (0x95A476)
 	if (!TestBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_DOESNT_CAUSE_FLASH)))
 	{
 		mJustGotShotCounter = 25;
@@ -7836,7 +8102,7 @@ void Zombie::TakeBodyDamage(int theDamage, unsigned int theDamageFlags)
 
 	int aBodyHealthOrigin = mBodyHealth;
 	int aDamageIndexBeforeDamage = GetBodyDamageIndex();
-	mBodyHealth -= theDamage;
+	mBodyHealth -= pvzu::engine::V1BodyDamage(this, theDamage); // PVZU: a gasping Newspaper takes no body damage (0x651d22)
 	int aDamageIndexAfterDamage = GetBodyDamageIndex();
 	if (mZombieType == ZombieType::ZOMBIE_ZAMBONI)
 	{
@@ -7973,19 +8239,31 @@ void Zombie::TakeBodyDamage(int theDamage, unsigned int theDamageFlags)
 
 void Zombie::TakeDamage(int theDamage, unsigned int theDamageFlags)
 {
+	pvzu::engine::ModModeZombieHit(this, theDamage); // PVZU: mod mode 0x77 push (hook 706; also while dying)
 	if (mZombiePhase == ZombiePhase::PHASE_JACK_IN_THE_BOX_POPPING || IsDeadOrDying())
 		return;
 
+	theDamageFlags = pvzu::engine::V1HitFlags(this, theDamageFlags); // PVZU: a reading red-eye Newspaper drops the hit flags (0xc05900)
+	if (pvzu::engine::V1MoonwalkerSavesHit(this, theDamage)) // PVZU: the white summoner lives through one lethal hit (0xc05400)
+		return;
+	theDamage = pvzu::engine::RoofCatapultFaith(this, theDamage); // PVZU: Unnamed "Basketball Faith" HP lock at 190 (hook 705)
+	theDamage = pvzu::engine::ModZombieDamageTaken(this, theDamage); // PVZU: weakened takes x2 (0x95a12b)
+	theDamage = pvzu::engine::BlackArmourDamageTaken(this, theDamage); // PVZU: black Football x0.85 / x1.2 (hook 705, 0x818069)
+	if (pvzu::engine::World7JackPopsOnHit(this)) // PVZU: world 7, an elite Jack at <= 370 pops at once, the hit does nothing (hook 707)
+		return;
+	pvzu::engine::Level70BossBeforeDamage(this); // PVZU: 7-10 boss phases, HP read before the hit (hook 707)
 	int aDamageRemaining = theDamage;
 
 	if (IsFlying())
 	{
 		aDamageRemaining = TakeFlyingDamage(aDamageRemaining, theDamageFlags);
 	}
-	if (aDamageRemaining > 0 && mShieldType != ShieldType::SHIELDTYPE_NONE && !TestBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_BYPASSES_SHIELD)))
+	const bool aPvzuShieldFirst = pvzu::engine::ShieldAlwaysFirst(this); // PVZU: Tall-nut door blocks pierce and bypass (hook 709)
+	if (aDamageRemaining > 0 && mShieldType != ShieldType::SHIELDTYPE_NONE && (!TestBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_BYPASSES_SHIELD)) || aPvzuShieldFirst))
 	{
 		aDamageRemaining = TakeShieldDamage(aDamageRemaining, theDamageFlags);
-		if (TestBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_HITS_SHIELD_AND_BODY)))
+		aDamageRemaining = pvzu::engine::RoofOverflowIntoLadders(this, aDamageRemaining, theDamageFlags); // PVZU: Unnamed pile (hook 710)
+		if (TestBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_HITS_SHIELD_AND_BODY)) && !aPvzuShieldFirst)
 		{
 			aDamageRemaining = theDamage;
 		}
@@ -8061,7 +8339,18 @@ bool Zombie::CanBeChilled()
 
 bool Zombie::CanBeFrozen()
 {
-	if (!CanBeChilled())
+	if (pvzu::engine::V1RefusesFreeze(this)) // PVZU: the white summoner dancing in (0xc053c0)
+		return false;
+	if (pvzu::engine::ZombossRefusesFreeze(this)) // PVZU: the boss at 1 HP cannot be frozen (hook 713)
+		return false;
+	if (pvzu::engine::BlackArmourRefusesFreeze(this)) // PVZU: black Football armour (hook 712, 0x81803b)
+		return false;
+	if (pvzu::engine::PoolFreezeGateOn()) // PVZU: Unnamed's gate replaces CanBeChilled here, so Ice-shroom freezes the Zomboni (hook 712)
+	{
+		if (!pvzu::engine::PoolFreezeGate(this) || pvzu::engine::PoolBossRefusesFreeze(this))
+			return false;
+	}
+	else if (!CanBeChilled())
 		return false;
 
 	if (mZombiePhase == ZombiePhase::PHASE_POLEVAULTER_IN_VAULT ||
@@ -8084,7 +8373,8 @@ bool Zombie::CanBeFrozen()
 
 bool Zombie::EffectedByDamage(unsigned int theDamageRangeFlags)
 {
-	if (!TestBit(theDamageRangeFlags, static_cast<int>(DamageRangeFlags::DAMAGES_DYING)) && IsDeadOrDying())
+	if (!TestBit(theDamageRangeFlags, static_cast<int>(DamageRangeFlags::DAMAGES_DYING)) && IsDeadOrDying() &&
+		!pvzu::engine::ModModeDyingHittable(this)) // PVZU: mod mode 0x76 (hook 714)
 	{
 		return false;
 	}
@@ -8152,7 +8442,7 @@ bool Zombie::EffectedByDamage(unsigned int theDamageRangeFlags)
 		return TestBit(theDamageRangeFlags, static_cast<int>(DamageRangeFlags::DAMAGES_OFF_GROUND));
 	}
 
-	if (mZombieType != ZombieType::ZOMBIE_BOBSLED && GetZombieRect().mX > WIDE_BOARD_WIDTH)
+	if (mZombieType != ZombieType::ZOMBIE_BOBSLED && GetZombieRect().mX > pvzu::engine::ZombieHittableMaxX(WIDE_BOARD_WIDTH)) // PVZU: Unnamed 1067 (.text 0x531BEC)
 	{
 		return false;  // off-board zombies cannot be hit, except the bobsled team
 	}
@@ -8173,6 +8463,9 @@ bool Zombie::EffectedByDamage(unsigned int theDamageRangeFlags)
 	{
 		return true;
 	}
+
+	if (TestBit(theDamageRangeFlags, static_cast<int>(DamageRangeFlags::DAMAGES_GROUND)) && IsFlying() && pvzu::unnamed::FlagsHitFlying(theDamageRangeFlags))
+		return true; // PVZU: V2 lobbed shots and Squash (flags 13) hit flying zombies (hook 715)
 
 	return TestBit(theDamageRangeFlags, static_cast<int>(DamageRangeFlags::DAMAGES_GROUND)) && !IsFlying() && !submerged && !underground;
 }
@@ -8364,6 +8657,10 @@ Reanimation* Zombie::AddAttachedReanim(int thePosX, int thePosY, ReanimationType
 {
 	if (mDead)
 		return nullptr;
+	// PVZU Plan 9 C2: as AddAttachedParticle; a 17th effect wrote past Attachment::mEffectArray[16] (a Newspaper torn
+	// while 16 star splats were attached, mode 0x89: crash in Attachment::Draw). Every caller takes nullptr.
+	if (IsFullOfAttachments(mAttachmentID))
+		return nullptr;
 
 	Reanimation* aReanim = mApp->AddReanimation(mX + thePosX, mY + thePosY, 0, theReanimType);
 	if (aReanim)
@@ -8377,6 +8674,7 @@ Reanimation* Zombie::AddAttachedReanim(int thePosX, int thePosY, ReanimationType
 void Zombie::RemoveIceTrap()
 {
 	mIceTrapCounter = 0;
+	pvzu::engine::MoonwalkResume(this); // PVZU: hook 717
 	if (mZombieType == ZombieType::ZOMBIE_BALLOON)
 	{
 		BalloonPropellerHatSpin(true);
@@ -8421,7 +8719,19 @@ void Zombie::HitIceTrap()
 		mBoard->RemoveParticleByType(ParticleEffect::PARTICLE_ZOMBIE_BOSS_FIREBALL);
 	}
 
-	TakeDamage(20, 1U);
+	// PVZU: Unnamed 200 (hook 718); a Catapult takes it as body damage
+	if (pvzu::unnamed::NightPlantsOn())
+	{
+		const int aPvzuBodyBefore = mBodyHealth, aPvzuHelmBefore = mHelmHealth, aPvzuShieldBefore = mShieldHealth;
+		if (mZombieType == ZombieType::ZOMBIE_CATAPULT)
+			TakeBodyDamage(pvzu::unnamed::IceTrapDamage(), 1U);
+		else
+			TakeDamage(pvzu::unnamed::IceTrapDamage(), 1U);
+		pvzu::unnamed::LogPlantAbility(static_cast<int>(mBoard->mMainCounter), std::format("ICETRAP zombie type {} row {}: iceTrap.damage {} (body {}->{} helm {}->{} shield {}->{})",
+			static_cast<int>(mZombieType), mRow, pvzu::unnamed::IceTrapDamage(), aPvzuBodyBefore, mBodyHealth, aPvzuHelmBefore, mHelmHealth, aPvzuShieldBefore, mShieldHealth));
+	}
+	else
+		TakeDamage(20, 1U);
 	UpdateAnimSpeed();
 }
 
@@ -8489,6 +8799,7 @@ void Zombie::BalloonPropellerHatSpin(bool theSpinning)
 
 void Zombie::RemoveButter()
 {
+	pvzu::engine::MoonwalkResume(this); // PVZU: hook 719
 	if (mZombieType == ZombieType::ZOMBIE_BALLOON)
 	{
 		BalloonPropellerHatSpin(true);
@@ -8526,7 +8837,7 @@ void Zombie::ApplyButter()
 	if (mZombieType == ZombieType::ZOMBIE_ZAMBONI || mZombieType == ZombieType::ZOMBIE_BOSS || IsTangleKelpTarget() || IsBobsledTeamWithSled() || IsFlying())
 		return;
 
-	mButteredCounter = 400;
+	mButteredCounter = pvzu::engine::RoofButterCs(this, pvzu::engine::ButterCs(this, 400)); // PVZU: hook 720: Kernel streak time, stacks
 	Zombie* aZombie = mBoard->ZombieTryToGet(mRelatedZombieID);
 	if (aZombie)
 	{
@@ -8667,7 +8978,19 @@ void Zombie::ApplyBurn()
 	if (mDead || mZombiePhase == ZombiePhase::PHASE_ZOMBIE_BURNED)
 		return;
 
-	if (mBodyHealth >= 1800 || mZombieType == ZombieType::ZOMBIE_BOSS)
+	if (pvzu::engine::V1BurnBecomesHit(this)) // PVZU: a Newspaper is never burned, it takes the 1800 hit (0x6514d5)
+	{
+		TakeDamage(1800, 18U);
+		return;
+	}
+	const int aPvzuCapped = pvzu::engine::ModBurnCapDamage(this); // PVZU: Loaded Cannon blast cap (0xc11770): 0 none, -1 burns
+	if (aPvzuCapped > 0)
+	{
+		TakeDamage(aPvzuCapped, 18U);
+		return;
+	}
+	const bool aPvzuTooTough = aPvzuCapped < 0 ? false : pvzu::GameData::Get().Feature("dayLevels") ? pvzu::engine::UnnamedTooToughToAsh(this) : mBodyHealth >= 1800; // PVZU: body + helm + shield
+	if (aPvzuTooTough || mZombieType == ZombieType::ZOMBIE_BOSS || pvzu::engine::RoofCatapultTooTough(this)) // PVZU: Unnamed catapult with balls (hook 793)
 	{
 		TakeDamage(1800, 18U);
 		return;
@@ -8842,6 +9165,8 @@ void Zombie::AttachShield()
 
 void Zombie::DetachShield()
 {
+	if (pvzu::engine::RoofReattachLadder(this)) // PVZU: Unnamed ladder pile takes its next spare ladder (hook 722)
+		return;
 	Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
 	if (aBodyReanim)
 	{
@@ -9281,7 +9606,8 @@ void Zombie::UpdateDeath()
 			mApp->PlayFoley(FoleyType::FOLEY_EXPLOSION);
 		}
 	}
-	else if (mZombieFade == -1 && aBodyReanim->mLoopCount > 0 && mZombieType != ZombieType::ZOMBIE_BOSS)
+	else if (mZombieFade == -1 && aBodyReanim->mLoopCount > 0 && mZombieType != ZombieType::ZOMBIE_BOSS &&
+		!pvzu::engine::ModModeKeepsCorpse(this)) // PVZU: mod mode 0x76 corpses stay (hook 725)
 	{
 		mZombieFade = mInPool ? 10 : 100;
 	}
@@ -9765,9 +10091,10 @@ void Zombie::BossRVAttack()
 
 void Zombie::BossRVLanding()
 {
+	const bool aPvzuNoPlants = pvzu::engine::ZombossRVLanding(this); // PVZU: Umbrella Leaf block, hypnotised zombies, pots (B5, B6)
 	for (Plant* aPlant : mBoard->mPlants)
 	{
-		if (aPlant->mDead)
+		if (aPlant->mDead || aPvzuNoPlants)
 			continue;
 		if (aPlant->mRow >= mTargetRow && aPlant->mRow <= mTargetRow + 1 && aPlant->mPlantCol >= mTargetCol && aPlant->mPlantCol <= mTargetCol + 2)
 		{
@@ -9838,6 +10165,10 @@ void Zombie::BossSpawnContact()
 	{
 		aZombieType = ZombieType::ZOMBIE_PAIL;
 	}
+	else if (auto aPvzuType = pvzu::engine::ZombossLateSpawnType(this)) // PVZU: Unnamed's 21-type list (B3)
+	{
+		aZombieType = *aPvzuType;
+	}
 	else
 	{
 		int aZombieTypeCount = LENGTH(gBossZombieList);
@@ -9852,6 +10183,7 @@ void Zombie::BossSpawnContact()
 
 	Zombie* aZombie = mBoard->AddZombieInRow(aZombieType, mTargetRow, 0);
 	aZombie->mPosX = 600.0f;
+	pvzu::engine::ZombossSpawned(this, aZombie); // PVZU: copies the boss's hypnosis, log
 }
 
 void Zombie::BossStompAttack()
@@ -9872,7 +10204,10 @@ void Zombie::BossStompAttack()
 	}
 
 	if (aRowsCount == 0)
+	{
+		pvzu::engine::ZombossEmptyStomp(this); // PVZU: Unnamed heals 1800 (B4)
 		return;
+	}
 
 	mTargetRow = PvzpPickFromArray(aRowArray, aRowsCount);
 
@@ -9891,6 +10226,8 @@ void Zombie::BossStompAttack()
 
 bool Zombie::BossCanStompRow(int theRow)
 {
+	if (auto aPvzu = pvzu::engine::ZombossCanStompRow(this, theRow)) // PVZU: hypnotised zombies / pots make a row stompable (B5)
+		return *aPvzu;
 	for (Plant* aPlant : mBoard->mPlants)
 	{
 		if (aPlant->mDead)
@@ -9905,9 +10242,10 @@ bool Zombie::BossCanStompRow(int theRow)
 
 void Zombie::BossStompContact()
 {
+	const bool aPvzuNoPlants = pvzu::engine::ZombossStompContact(this); // PVZU: crushes hypnotised zombies, opens pots (B5)
 	for (Plant* aPlant : mBoard->mPlants)
 	{
-		if (aPlant->mDead)
+		if (aPlant->mDead || aPvzuNoPlants)
 			continue;
 		if (aPlant->mRow >= mTargetRow && aPlant->mRow <= mTargetRow + 1 && aPlant->mPlantCol >= 5)
 		{
@@ -9937,8 +10275,13 @@ void Zombie::BossBungeeSpawn()
 
 	for (int i = 0; i < NUM_BOSS_BUNGEES; i++)
 	{
-		Zombie* aZombie = mBoard->AddZombieInRow(ZombieType::ZOMBIE_BUNGEE, 0, 0);
+		Zombie* aZombie;
+		{
+			pvzu::engine::ZombossBungeeScope aPvzuScope; // PVZU: exe flag 0xC04476 (Jack-head bungees, B8)
+			aZombie = mBoard->AddZombieInRow(ZombieType::ZOMBIE_BUNGEE, 0, 0);
+		}
 		aZombie->PickBungeeZombieTarget(mTargetCol + i);
+		pvzu::engine::ZombossBungeeSpawned(this, aZombie); // PVZU: hypnosis, boss id, Jack-head roll (B8)
 		aZombie->mAltitude = aZombie->mPosY - 30.0f;
 		mFollowerZombieID[i] = mBoard->ZombieGetID(aZombie);
 	}
@@ -9999,7 +10342,8 @@ void Zombie::BossHeadSpit()
 
 	mZombiePhase = ZombiePhase::PHASE_BOSS_HEAD_SPIT;
 	mFireballRow = RandRangeInt(0, mBoard->StageHas6Rows() ? 5 : 4);  // pool boss compatibility
-	mIsFireBall = RandRangeInt(0, 1) == 0;
+	if (!pvzu::engine::ZombossPickBall(this)) // PVZU: Unnamed picks the harder ball by Jalapeno / Ice-shroom packets (B7)
+		mIsFireBall = RandRangeInt(0, 1) == 0;
 
 	const char* aTrackName;
 	switch (mFireballRow)
@@ -10218,6 +10562,7 @@ void Zombie::UpdateBoss()
 		return;
 	}
 
+	pvzu::engine::ZombossDevTick(this); // PVZU: dev options only (-pvzu-dev-boss-*)
 	Reanimation* aHeadReanim = mApp->ReanimationGet(mSpecialHeadReanimID);
 	UpdateBossFireball();
 	if (mIceTrapCounter == 0)

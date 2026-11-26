@@ -56,16 +56,32 @@ import java.util.zip.ZipInputStream;
 public class ResourceImportActivity extends AppCompatActivity {
     private static final String TAG = "ResImport";
     private static final int BUFFER_SIZE = 8192;
+    // PVZU: set by the game's Options "Import Unnamed ZIP" (PvZPortableActivity.pvzuOpenUnnamedImport): open the
+    // Unnamed zip picker at once, then report to the game and go back to it.
+    static final String EXTRA_UNNAMED_ONLY = "pvzu_unnamed_only";
 
     private File gameDir;
     private TextView statusText;
     private ProgressBar progressBar;
     private Button btnPickZip;
     private Button btnPickDir;
+    private Button btnPickUnnamedZip; // PVZU
     private Button btnExportSave;
     private Button btnImportSaveZip;
     private Button btnImportSaveDir;
     private Button btnLaunchGame;
+
+    // PVZU: Unnamed zip import
+
+    private final ActivityResultLauncher<String[]> unnamedZipPicker =
+
+        registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
+
+            if (uri != null) importUnnamedZip(uri);
+            else if (unnamedOnly()) returnToGame(0, 0, null); // picker closed without a file
+
+        });
+
 
     private final ActivityResultLauncher<String[]> zipPicker =
         registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
@@ -110,6 +126,7 @@ public class ResourceImportActivity extends AppCompatActivity {
         progressBar   = findViewById(R.id.progress_bar);
         btnPickZip    = findViewById(R.id.btn_pick_zip);
         btnPickDir    = findViewById(R.id.btn_pick_dir);
+        btnPickUnnamedZip = findViewById(R.id.btn_pick_unnamed_zip); // PVZU
         btnExportSave = findViewById(R.id.btn_export_save);
         btnImportSaveZip = findViewById(R.id.btn_import_save_zip);
         btnImportSaveDir = findViewById(R.id.btn_import_save_dir);
@@ -131,8 +148,11 @@ public class ResourceImportActivity extends AppCompatActivity {
             saveDirImporter.launch(null)
         );
         btnLaunchGame.setOnClickListener(v -> launchGame());
+        btnPickUnnamedZip.setOnClickListener(v -> openUnnamedZipPicker()); // PVZU
+        if (gameDir != null) UnnamedImport.installBundledPack(this, gameDir); // PVZU: numbers + English text
 
         refreshStatus();
+        if (unnamedOnly() && savedInstanceState == null) openUnnamedZipPicker(); // PVZU: from the game's Options
     }
 
     private boolean hasResources() {
@@ -412,10 +432,44 @@ public class ResourceImportActivity extends AppCompatActivity {
         }).start();
     }
 
+    // PVZU: Unnamed zip -> <gameDir>/mods/unnamed/assets (rules in UnnamedImport)
+    private void importUnnamedZip(Uri uri) {
+        setWorking(true);
+        new Thread(() -> {
+            try {
+                int n = UnnamedImport.importZip(this, uri, gameDir);
+                if (unnamedOnly()) runOnUiThread(() -> returnToGame(1, n, null)); // the game says what to do next
+                else runOnUiThread(() -> Toast.makeText(this, getString(R.string.unnamed_import_success, n), Toast.LENGTH_LONG).show());
+            } catch (IOException e) {
+                Log.e(TAG, "Unnamed import failed", e);
+                if (unnamedOnly()) runOnUiThread(() -> returnToGame(2, 0, e.getMessage()));
+                else runOnUiThread(() -> Toast.makeText(this, getString(R.string.import_failed, e.getMessage()), Toast.LENGTH_LONG).show());
+            } finally {
+                runOnUiThread(() -> { setWorking(false); refreshStatus(); });
+            }
+        }).start();
+    }
+
+    // PVZU: the Unnamed zip picker, from the button here or from the game's Options
+    private void openUnnamedZipPicker() {
+        unnamedZipPicker.launch(new String[]{"application/zip", "application/x-zip-compressed", "application/octet-stream"});
+    }
+
+    private boolean unnamedOnly() {
+        return getIntent() != null && getIntent().getBooleanExtra(EXTRA_UNNAMED_ONLY, false);
+    }
+
+    // PVZU: outcome 0 cancelled, 1 imported, 2 failed; the game shows the message (no toast here, it would say it twice)
+    private void returnToGame(int outcome, int copied, String error) {
+        PvZPortableActivity.reportUnnamedImport(outcome, copied, error);
+        launchGame(); // singleInstance: brings the running game back to the front
+    }
+
     private void setWorking(boolean working) {
         progressBar.setVisibility(working ? View.VISIBLE : View.GONE);
         btnPickZip.setEnabled(!working);
         btnPickDir.setEnabled(!working);
+        btnPickUnnamedZip.setEnabled(!working); // PVZU
         btnExportSave.setEnabled(!working && hasSaveData());
         btnImportSaveZip.setEnabled(!working);
         btnImportSaveDir.setEnabled(!working);

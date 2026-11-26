@@ -27,6 +27,10 @@
 #include "../Resources.h"
 #include "../PvzpLib/Reanimator.h"
 #include "widget/WidgetManager.h"
+#include "Mod/Engine/WideScreen.h" // PVZU
+#include "Mod/Engine/MobilePlanting.h" // PVZU
+#include "Mod/Engine/SpecialLevelHooks.h" // PVZU: 73 column preview
+#include "Mod/Engine/ModModes.h" // PVZU: the Glove Wars' gloved lawn plant
 
 CursorObject::CursorObject()
 {
@@ -67,8 +71,8 @@ void CursorObject::Update()
 	}
 
 	mVisible = true;
-	mX = mApp->mWidgetManager->mLastMouseX - 25;
-	mY = mApp->mWidgetManager->mLastMouseY - 35;
+	mX = pvzu::engine::MouseBoardX(mBoard, mApp->mWidgetManager->mLastMouseX) - 25; // PVZU: drawn by the board, which is not at x 0
+	mY = pvzu::engine::MouseBoardY(mBoard, mApp->mWidgetManager->mLastMouseY) - 35; // PVZU: board zoom
 }
 
 void CursorObject::Die()
@@ -154,7 +158,18 @@ void CursorObject::Draw(Graphics* g)
 
 	case CursorType::CURSOR_TYPE_PLANT_FROM_GLOVE:
 	{
-		Plant* aPlant = mBoard->mPlants.DataArrayGet(static_cast<unsigned int>(mGlovePlantID));
+		Plant* aPlant = pvzu::engine::ModModeGlovePlant(mBoard); // PVZU: nullptr once the held plant is eaten (item modes)
+		if (aPlant == nullptr)
+			break;
+		SeedType aPvzuSeed, aPvzuImitater;
+		if (pvzu::engine::ModModeGloveLawnSeed(aPlant, aPvzuSeed, aPvzuImitater)) // PVZU: a lawn plant has no potted-plant record
+		{
+			float aOffsetY = PlantDrawHeightOffset(mBoard, nullptr, aPlant->mSeedType, -1, -1) - 25.0f; // as CURSOR_TYPE_PLANT_FROM_BANK
+			if (Plant::IsFlying(aPlant->mSeedType) || aPlant->mSeedType == SeedType::SEED_GRAVEBUSTER)
+				aOffsetY += 30.0f;
+			Plant::DrawSeedType(g, aPvzuSeed, aPvzuImitater, DrawVariation::VARIATION_NORMAL, -10.0f, aOffsetY);
+			break;
+		}
 		PottedPlant* aPottedPlant = &mApp->mPlayerInfo->mPottedPlant[aPlant->mPottedPlantIndex];
 		if (mBoard->mBackground == BackgroundType::BACKGROUND_MUSHROOM_GARDEN || mBoard->mBackground == BackgroundType::BACKGROUND_ZOMBIQUARIUM)
 		{
@@ -211,8 +226,10 @@ void CursorObject::Draw(Graphics* g)
 	case CursorType::CURSOR_TYPE_COBCANNON_TARGET:
 	{
 		HitResult aHitResult;
-		mBoard->MouseHitTest(mBoard->mPrevMouseX, mBoard->mPrevMouseY, &aHitResult);
-		if (aHitResult.mObjectType == GameObjectType::OBJECT_TYPE_NONE && mBoard->mPrevMouseY >= 80)
+		const int aPvzuPrevX = pvzu::engine::MouseBoardX(mBoard, mBoard->mPrevMouseX); // PVZU: board coordinates
+		const int aPvzuPrevY = pvzu::engine::MouseBoardY(mBoard, mBoard->mPrevMouseY);
+		mBoard->MouseHitTest(aPvzuPrevX, aPvzuPrevY, &aHitResult);
+		if (aHitResult.mObjectType == GameObjectType::OBJECT_TYPE_NONE && aPvzuPrevY >= 80)
 		{
 			g->DrawImageCel(IMAGE_COBCANNON_TARGET, -11, 7, 0);
 		}
@@ -243,9 +260,15 @@ void CursorPreview::Update()
 		return;
 	}
 
+	if (!pvzu::engine::TilePreviewAllowed(mBoard)) // PVZU: touch: the see-through plant shows only while a finger is down
+	{
+		mVisible = false;
+		return;
+	}
+
 	SeedType aSeedType = mBoard->GetSeedTypeInCursor();
-	int aMouseX = mApp->mWidgetManager->mLastMouseX;
-	int aMouseY = mApp->mWidgetManager->mLastMouseY;
+	int aMouseX = pvzu::engine::MouseBoardX(mBoard, mApp->mWidgetManager->mLastMouseX); // PVZU: board coordinates
+	int aMouseY = pvzu::engine::MouseBoardY(mBoard, mApp->mWidgetManager->mLastMouseY); // PVZU: board zoom
 	mGridX = mBoard->PlantingPixelToGridX(aMouseX, aMouseY, aSeedType);
 	mGridY = mBoard->PlantingPixelToGridY(aMouseX, aMouseY, aSeedType);
 	if (mGridX >= 0 && mGridX < MAX_GRID_SIZE_X && mGridY >= 0 && mGridY <= MAX_GRID_SIZE_Y)
@@ -285,13 +308,21 @@ void CursorPreview::Draw(Graphics* g)
 	g->SetColor(Color(255, 255, 255, 100));
 
 	PottedPlant* aPottedPlant = nullptr;
+	SeedType aDrawSeed = mBoard->mCursorObject->mType, aDrawImitater = mBoard->mCursorObject->mImitaterType; // PVZU: gloved lawn plant below
 	if (mBoard->mCursorObject->mCursorType == CursorType::CURSOR_TYPE_WHEEELBARROW || mBoard->mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_WHEEL_BARROW)
 	{
 		aPottedPlant = mApp->mZenGarden->GetPottedPlantInWheelbarrow();
 	}
 	else if (mBoard->mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_GLOVE)
 	{
-		aPottedPlant = &mApp->mPlayerInfo->mPottedPlant[mBoard->mPlants.DataArrayGet(static_cast<unsigned int>(mBoard->mCursorObject->mGlovePlantID))->mPottedPlantIndex];
+		Plant* aPlant = pvzu::engine::ModModeGlovePlant(mBoard); // PVZU: gone (eaten) or a lawn plant with no potted-plant record
+		if (aPlant == nullptr)
+		{
+			g->SetColorizeImages(false);
+			return;
+		}
+		if (!pvzu::engine::ModModeGloveLawnSeed(aPlant, aDrawSeed, aDrawImitater))
+			aPottedPlant = &mApp->mPlayerInfo->mPottedPlant[aPlant->mPottedPlantIndex];
 	}
 
 	if (aPottedPlant)
@@ -323,10 +354,10 @@ void CursorPreview::Draw(Graphics* g)
 			aOffsetX = 0.0f;
 		}
 
-		Plant::DrawSeedType(g, mBoard->mCursorObject->mType, mBoard->mCursorObject->mImitaterType, DrawVariation::VARIATION_NORMAL, aOffsetX, aOffsetY);
+		Plant::DrawSeedType(g, aDrawSeed, aDrawImitater, DrawVariation::VARIATION_NORMAL, aOffsetX, aOffsetY); // PVZU: cursor's seed (or the gloved plant's)
 	}
 
-	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_COLUMN)
+	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_COLUMN || pvzu::engine::SpecialPlantsColumn(mBoard)) // PVZU: 73 column preview (hook 217)
 	{
 		for (int y = 0; y < MAX_GRID_SIZE_Y; y++)
 		{

@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include "Mod/Unnamed/State.h" // PVZU
 #include <cstdint>
 #include <string>
 #include "GameObject.h"
@@ -164,6 +165,7 @@ class PvzpParticleSystem;
 class Plant : public GameObject
 {
 public:
+	pvzu::unnamed::PlantState mPvzu{}; // PVZU: Unnamed per-plant state (zero in vanilla)
 	SeedType                mSeedType;
 	int32_t                 mPlantCol;
 	int32_t                 mAnimCounter;
@@ -221,6 +223,7 @@ public:
 	void                    Draw(Graphics* g);
 	void                    MouseDown(int x, int y, int theClickCount);
 	void                    DoSpecial();
+	void                    PvzuPlantedFromSeedBank(); // PVZU: Unnamed first-Adventure Peashooter (hook 68)
 	void                    Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY);
 	Zombie*                 FindTargetZombie(int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY);
 	void                    Die();

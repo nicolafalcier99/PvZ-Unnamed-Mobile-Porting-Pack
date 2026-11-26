@@ -35,12 +35,15 @@
 #include "misc/Ratio.h"
 #include "misc/SexyMatrix.h"
 #include <memory>
+#include <functional> // PVZU
+#include <vector> // PVZU
 
 namespace Sexy
 {
 
 class SexyAppBase;
 class GLImage;
+class Graphics; // PVZU
 class SexyMatrix3;
 class TriVertex;
 
@@ -159,6 +162,8 @@ public:
 	float mMaxTotalU, mMaxTotalV;
 	PixelFormat mPixelFormat;
 	int mImageFlags;
+	int mHdScale;	// PVZU: texels per logical pixel (1, or the HD twin's 2/4); pieces stay laid out in logical pixels
+	bool mHdMip;	// PVZU: the HD pieces have mipmaps
 
 	TextureData();
 	~TextureData();
@@ -225,6 +230,9 @@ public:
 	void					SetCursorPos(int theCursorX, int theCursorY);
 
 public:
+	// PVZU: board zoom (Mod/Engine/Zoom.h): vertices drawn while set go to (scale * x + tx, scale * y + ty).
+	static void				PvzuSetWorldTransform(float theScale, float theTX, float theTY);
+	static void				PvzuClearWorldTransform();
 	void					PushTransform(const SexyMatrix3 &theTransform, bool concatenate = true);
 	void					PopTransform();
 
@@ -232,6 +240,9 @@ public:
 	void					Flush();
 
 	bool					CreateImageTexture(MemoryImage* theImage);
+	// PVZU: HD twins of procedural images: theDraw into a (theW x theH) logical area rendered theScale times larger
+	// offscreen; theOut = straight-alpha ARGB, theW*theScale wide, top row first. Main thread only.
+	bool					PvzuRenderToBits(int theW, int theH, int theScale, const std::function<void(Graphics*)>& theDraw, std::vector<uint32_t>& theOut);
 	bool					RecoverBits(MemoryImage* theImage);
 	void					Blt(Image* theImage, float theX, float theY, const Rect& theSrcRect, const Color& theColor, int theDrawMode, bool linearFilter = true);
 	void					BltClipF(Image* theImage, float theX, float theY, const Rect& theSrcRect, const Rect *theClipRect, const Color& theColor, int theDrawMode, bool linearFilter = true);

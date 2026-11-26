@@ -145,6 +145,7 @@ AwardScreen::AwardScreen(LawnApp* theApp, AwardType theAwardType, bool theShowin
 	mStartButton->SetLabelHiliteColor(Color(213, 159, 43));
 	mStartButton->Resize(324, 500, 156, 42);
 	mStartButton->mTextOffsetY = -1;
+	mStartButton->mParentWidget = this; // PVZU: hit-test in screen-local coords (the award screen is centred when wide)
 
 	mContinueButton = std::make_unique<GameButton>(AwardScreen::AwardScreen_Start);
 	mContinueButton->mButtonImage = Sexy::IMAGE_SEEDCHOOSER_BUTTON;

@@ -67,6 +67,7 @@ public:
 	std::unique_ptr<Plant>		mPlant;
 	std::unique_ptr<Zombie>		mZombie;
 	std::array<std::unique_ptr<Zombie>, 400>	mZombiePerfTest;
+	bool						mPvzuModPage = false; // PVZU: the plants page shows Unnamed's 26 mod plants (feature modAlmanac)
 
 public:
 	AlmanacDialog(LawnApp* theApp);

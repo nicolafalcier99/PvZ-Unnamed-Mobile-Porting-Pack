@@ -34,6 +34,8 @@
 extern bool gOptimizeSoftwareDrawing;
 #endif
 
+namespace pvzu::hd { struct Twin; } // PVZU: HD art (Mod/Engine/HdTextures.h)
+
 namespace Sexy
 {
 
@@ -67,6 +69,7 @@ public:
 
 	bool					mBitsChanged;
 	SexyAppBase*			mApp;
+	std::shared_ptr<pvzu::hd::Twin>	mPvzuHd; // PVZU: HD twin whose pixels the texture uses while the bits are unchanged
 
 private:
 	void					Init();

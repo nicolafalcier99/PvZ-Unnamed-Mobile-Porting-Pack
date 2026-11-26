@@ -19,6 +19,8 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Capacity.h" // PVZU
+#include "Mod/Layout.h" // PVZU
 #include "PvzpDebug.h"
 #include "Definition.h"
 #include "PvzpParticle.h"
@@ -1015,7 +1017,7 @@ void RenderParticle(Graphics* g, PvzpParticle* theParticle, const Color& theColo
 		Color anOldColor = g->GetColor();
 		int anOldDrawMode = g->GetDrawMode();
 		g->SetColor(theColor);
-		g->FillRect(-g->mTransX, -g->mTransY, BOARD_WIDTH, BOARD_HEIGHT);
+		g->FillRect(-g->mTransX, -g->mTransY, pvzu::CurrentLayout().width, BOARD_HEIGHT); // PVZU: whole wide screen
 		g->SetColor(anOldColor);
 		g->SetDrawMode(anOldDrawMode);
 	}
@@ -1249,9 +1251,9 @@ PvzpParticleHolder::~PvzpParticleHolder()
 
 void PvzpParticleHolder::InitializeHolder()
 {
-	mParticleSystems.DataArrayInitialize(1024U, "particle systems");
-	mEmitters.DataArrayInitialize(1024U, "emitters");
-	mParticles.DataArrayInitialize(1024U, "particles");
+	mParticleSystems.DataArrayInitialize(pvzu::kEffectArrayCapacity, "particle systems"); // PVZU: was 1024
+	mEmitters.DataArrayInitialize(pvzu::kEffectArrayCapacity, "emitters"); // PVZU: was 1024
+	mParticles.DataArrayInitialize(pvzu::kEffectArrayCapacity, "particles"); // PVZU: was 1024
 	mShakeCache = std::make_unique<PvzpParticleShakeCache[]>(mParticles.mMaxSize);
 	mParticleListNodeAllocator.Initialize(1024, sizeof(PvzpListNode<ParticleID>));
 	mEmitterListNodeAllocator.Initialize(1024, sizeof(PvzpListNode<ParticleEmitterID>));

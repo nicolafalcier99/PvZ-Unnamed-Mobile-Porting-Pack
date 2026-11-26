@@ -19,6 +19,7 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Engine/WideScreen.h" // PVZU
 #include "Board.h"
 #include "Challenge.h"
 #include "../LawnApp.h"
@@ -367,7 +368,7 @@ void MessageWidget::Draw(Graphics* g)
 
 	_Font* aFont = GetFont();
 	_Font* aOutlineFont = nullptr;
-	int aPosX = BOARD_WIDTH / 2;
+	int aPosX = pvzu::engine::UiX(mApp->mBoard, BOARD_WIDTH / 2, pvzu::Anchor::Center); // PVZU: screen centre at rest
 	int aPosY = 596;
 	int aTextOffsetY = 0;
 	int aRectHeight = 0;
@@ -477,7 +478,7 @@ void MessageWidget::Draw(Graphics* g)
 		if (aRectHeight > 0)
 		{
 			aOutlineColor = Color(0, 0, 0, 128);
-			Rect aRect(0, aPosY, BOARD_WIDTH, aRectHeight);
+			Rect aRect(pvzu::engine::UiX(mApp->mBoard, 0, pvzu::Anchor::Left), aPosY, pvzu::engine::ScreenWidth(), aRectHeight); // PVZU: full-width band
 			g->SetColor(aOutlineColor);
 			g->FillRect(aRect);
 
@@ -486,7 +487,7 @@ void MessageWidget::Draw(Graphics* g)
 		}
 		else
 		{
-			Rect aRect(aPosX - mApp->mBoard->mX - BOARD_WIDTH / 2, aPosY - aFont->mAscent, BOARD_WIDTH, BOARD_HEIGHT);
+			Rect aRect(pvzu::engine::ScreenWidth() / 2 - mApp->mBoard->mX - BOARD_WIDTH / 2, aPosY - aFont->mAscent, BOARD_WIDTH, BOARD_HEIGHT); // PVZU: screen centre
 			if (aOutlineFont)
 			{
 				PvzpDrawStringWrapped(g, mLabel, aRect, aOutlineFont, aOutlineColor, DrawStringJustification::DS_ALIGN_CENTER);
@@ -509,7 +510,7 @@ void MessageWidget::Draw(Graphics* g)
 				PvzpDrawString(
 					g,
 					aSubStr,
-					BOARD_WIDTH / 2 - mApp->mBoard->mX,
+					pvzu::engine::ScreenWidth() / 2 - mApp->mBoard->mX, // PVZU: screen centre
 					aPosY + 26,
 					Sexy::FONT_HOUSEOFTERROR16,
 					Color(224, 187, 62, aColor.mAlpha),

@@ -518,7 +518,7 @@ void GridItem::UpdateScaryPot()
 	{
 		if (aPlant->mDead)
 			continue;
-		if (aPlant->mSeedType == SeedType::SEED_PLANTERN && !aPlant->NotOnGround())
+		if (aPlant->mSeedType == SeedType::SEED_PLANTERN && aPlant->mPvzu.modSeed == 0 && !aPlant->NotOnGround()) // PVZU: not a Moonflower
 		{
 			int aDiffX = abs(aPlant->mPlantCol - mGridX);
 			int aDiffY = abs(aPlant->mRow - mGridY);

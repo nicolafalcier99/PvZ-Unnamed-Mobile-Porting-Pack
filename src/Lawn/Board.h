@@ -27,6 +27,8 @@
 
 #include "../ConstEnums.h"
 #include "../PvzpLib/DataArray.h"
+#include "Mod/Capacity.h" // PVZU Plan 9 C2: MAX_RENDER_ITEMS
+#include "Mod/StreetFog.h" // PVZU: EdgeFogState
 #include "widget/Widget.h"
 #include "widget/ButtonListener.h"
 
@@ -45,7 +47,7 @@ constexpr const int MAX_ZOMBIES_IN_WAVE = 50;
 constexpr const int MAX_ZOMBIE_WAVES = 100;
 constexpr const int MAX_GRAVE_STONES = MAX_GRID_SIZE_X * MAX_GRID_SIZE_Y;
 constexpr const int MAX_POOL_GRID_SIZE = 10;
-constexpr const int MAX_RENDER_ITEMS = 2048;
+constexpr const int MAX_RENDER_ITEMS = static_cast<int>(pvzu::kRenderItemCapacity); // PVZU Plan 9 C2: was 2048 (Mod/Capacity.h)
 constexpr const int PROGRESS_METER_COUNTER = 150;
 
 class LawnApp;
@@ -140,6 +142,11 @@ public:
 	std::unique_ptr<SeedBank>			mSeedBank;
 	std::unique_ptr<GameButton>			mMenuButton;
 	std::unique_ptr<GameButton>			mStoreButton;
+	int								mPvzuUiShift = 0; // PVZU: x shift already applied to the right-edge buttons
+	pvzu::EdgeFogState				mPvzuEdgeFog{}; // PVZU: the street cover's slide in / out (Mod/StreetFog.h), see WideScreen
+	float							mPvzuZoom = 0.0f; // PVZU: board zoom progress (0 unzoomed .. 1 zoomed), see Mod/Engine/Zoom.h
+	int								mPvzuLevelLabelWidth = 0; // PVZU: last drawn "Level x-y" width (the HUD's coin bank sits left of it)
+	pvzu::unnamed::BoardState		mPvzuState{}; // PVZU: board-wide Unnamed state (ice-head Jack freeze), saved as chunk "PVZB"
 	bool							mIgnoreMouseUp;
 	std::unique_ptr<ToolTipWidget>		mToolTip;
 	std::unique_ptr<CutScene>			mCutScene;
@@ -286,6 +293,7 @@ public:
 	void							KeyUp(KeyCode) override {}
 	void							KeyDown(KeyCode theKey) override;
 	void							Update() override;
+	void							PvzuUpdateOnce(); // PVZU: vanilla's Board::Update; Update() runs it 1-2x per frame (speed button)
 	void							UpdateLayers();
 	void							Draw(Graphics* g) override;
 	void							DrawBackdrop(Graphics* g);
@@ -384,7 +392,7 @@ public:
 	void							UpdateFog();
 	int					LeftFogColumn();
 	static bool			IsZombieTypePoolOnly(ZombieType theZombieType);
-	void							DropLootPiece(int thePosX, int thePosY, int theDropFactor);
+	bool							DropLootPiece(int thePosX, int thePosY, int theDropFactor); // PVZU: true when its final loot coin dropped (Grave Buster refund)
 	void							UpdateLevelEndSequence();
 	LawnMower*						GetBottomLawnMower();
 	bool							CanDropLoot();

@@ -19,6 +19,7 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Mode.h" // PVZU
 #include <time.h>
 #include <format>
 #include "Board.h"
@@ -164,12 +165,12 @@ std::unique_ptr<Checkbox> MakeNewCheckbox(int theId, CheckboxListener* theListen
 
 std::string GetSavedGameName(GameMode theGameMode, int theProfileId)
 {
-	return GetAppDataPath(std::format("userdata/game{}_{}.v4", theProfileId, static_cast<int>(theGameMode)));
+	return GetAppDataPath(pvzu::CurrentUserDataPath(std::format("game{}_{}.v4", theProfileId, static_cast<int>(theGameMode)))); // PVZU: per-mode saves
 }
 
 std::string GetLegacySavedGameName(GameMode theGameMode, int theProfileId)
 {
-	return GetAppDataPath(std::format("userdata/game{}_{}.dat", theProfileId, static_cast<int>(theGameMode)));
+	return GetAppDataPath(pvzu::CurrentUserDataPath(std::format("game{}_{}.dat", theProfileId, static_cast<int>(theGameMode)))); // PVZU: per-mode saves
 }
 
 int GetCurrentDaysSince2000(time_t theTime)

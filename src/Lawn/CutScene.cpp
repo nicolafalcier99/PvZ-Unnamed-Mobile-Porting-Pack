@@ -19,6 +19,12 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Layout.h" // PVZU
+#include "Mod/EndScreens.h" // PVZU: lose text centred on the wide screen
+#include "Mod/Engine/WideScreen.h" // PVZU
+#include "Mod/Engine/LaterLevels.h" // PVZU Plan 7: Adventure 51-73
+#include "Mod/Engine/SpecialLevelHooks.h" // PVZU Plan 7 Task 3a: 6-10 intro
+#include <algorithm>
 #include "Board.h"
 #include "Plant.h"
 #include "Zombie.h"
@@ -49,6 +55,7 @@
 #include "widget/WidgetManager.h"
 #include <algorithm>
 #include <format>
+#include "Mod/Engine/ModModes.h" // PVZU: mod-only modes 0x65..0x94
 
 static const int	TimePanRightStart				= 1500;
 static const int	TimePanRightEnd					= 3500;
@@ -628,6 +635,7 @@ bool CutScene::IsSurvivalRepick()
 bool CutScene::IsNonScrollingCutscene()
 {
 	return
+		pvzu::engine::ModModeNonScrolling(mApp) || // PVZU: mod mode 0x8b (hook 219)
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ICE ||
 		mApp->mGameMode == GameMode::GAMEMODE_UPSELL ||
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN ||
@@ -682,10 +690,10 @@ bool CutScene::CanGetPacketUpgrade(int theUpgradeIndex)
 void CutScene::StartLevelIntro()
 {
 	mCutsceneTime = 0;
-	mBoard->mSeedBank->Move(SEED_BANK_OFFSET_X, -IMAGE_SEEDBANK->GetHeight());
+	mBoard->mSeedBank->Move(pvzu::engine::UiX(mBoard, SEED_BANK_OFFSET_X, pvzu::Anchor::Left), -IMAGE_SEEDBANK->GetHeight()); // PVZU: screen's left edge
 	mBoard->mMenuButton->mBtnNoDraw = true;
 	mApp->mSeedChooserScreen->mMouseVisible = false;
-	mApp->mSeedChooserScreen->Move(0, SEED_CHOOSER_OFFSET_Y);
+	mApp->mSeedChooserScreen->Move(pvzu::ChooserScreenX(pvzu::CurrentLayout()) /* PVZU: right of the safe inset */, SEED_CHOOSER_OFFSET_Y);
 	mApp->mSeedChooserScreen->mMenuButton->mBtnNoDraw = true;
 	mBoard->mShowShovel = false;
 	mBoard->mSeedBank->mCutSceneDarken = 255;
@@ -870,10 +878,11 @@ void CutScene::StartLevelIntro()
 	{
 		mBossTime = 0;
 	}
+	mBossTime = pvzu::engine::SpecialIntroBossTime(mBoard, mBossTime); // PVZU: 6-10 4000, Dr. Zomboss enters (hook 220)
 
 	if (IsScrolledLeftAtStart())
 	{
-		mBoard->Move(220, 0);
+		mBoard->Move(pvzu::engine::Camera(mBoard).house, 0); // PVZU: house view (vanilla 220)
 	}
 	if (IsNonScrollingCutscene() && mCrazyDaveTime == 0)
 	{
@@ -965,7 +974,7 @@ void CutScene::CancelIntro()
 		mCutsceneTime = TimeSeedChoserSlideOnEnd + mCrazyDaveTime - 20;
 		if (!IsNonScrollingCutscene())
 		{
-			mBoard->Move(mApp->mWidth - BOARD_IMAGE_WIDTH_OFFSET, 0);
+			mBoard->Move(pvzu::engine::Camera(mBoard).street, 0); // PVZU: street view (vanilla 800 - 1180)
 		}
 		if (mBoard->mAdvice->mMessageStyle == MessageStyle::MESSAGE_STYLE_HOUSE_NAME)
 		{
@@ -1014,7 +1023,7 @@ void CutScene::CancelIntro()
 		}
 		if (!mApp->IsChallengeWithoutSeedBank())
 		{
-			mBoard->mSeedBank->Move(SEED_BANK_OFFSET_X_END, 0);
+			mBoard->mSeedBank->Move(pvzu::engine::UiX(mBoard, SEED_BANK_OFFSET_X_END, pvzu::Anchor::Left), 0); // PVZU
 		}
 
 		mBoard->mEnableGraveStones = true;
@@ -1075,6 +1084,7 @@ void CutScene::AddFlowerPots()
 	{
 		aPotColumns = 3;
 	}
+	aPotColumns = pvzu::engine::LaterLevelsPotColumns(mBoard, aPotColumns); // PVZU: 51-60 pot columns (hook 222)
 
 	for (int x = 0; x < aPotColumns; x++)
 	{
@@ -1128,14 +1138,16 @@ void CutScene::AnimateBoard()
 	}
 
 	// Pan the board right
-	int aBoardOffset = IsScrolledLeftAtStart() ? BOARD_OFFSET : 0;
+	// PVZU: pan stops from the wide layout (vanilla: house 220, rest 0, street 800 - 1180)
+	const pvzu::BoardCamera aCamera = pvzu::engine::Camera(mBoard);
+	int aBoardOffset = IsScrolledLeftAtStart() ? aCamera.house : aCamera.rest;
 	if (mCutsceneTime <= aTimePanRightStart)
 	{
 		mBoard->Move(aBoardOffset, 0);
 	}
 	if (mCutsceneTime > aTimePanRightStart && mCutsceneTime <= aTimePanRightEnd)
 	{
-		int aPanOffset = CalcPosition(aTimePanRightStart, aTimePanRightEnd, -aBoardOffset, BOARD_IMAGE_WIDTH_OFFSET - mApp->mWidth);
+		int aPanOffset = CalcPosition(aTimePanRightStart, aTimePanRightEnd, -aBoardOffset, -aCamera.street);
 		mBoard->Move(-aPanOffset, 0);
 	}
 
@@ -1148,7 +1160,7 @@ void CutScene::AnimateBoard()
 		// Seed chooser slides on
 		if (mCutsceneTime > aTimeSeedChoserSlideOnStart && mCutsceneTime <= aTimeSeedChoserSlideOnEnd)
 		{
-			aSeedChoser->Move(0, CalcPosition(aTimeSeedChoserSlideOnStart, aTimeSeedChoserSlideOnEnd, SEED_CHOOSER_OFFSET_Y, 0));
+			aSeedChoser->Move(pvzu::ChooserScreenX(pvzu::CurrentLayout()) /* PVZU: right of the safe inset */, CalcPosition(aTimeSeedChoserSlideOnStart, aTimeSeedChoserSlideOnEnd, SEED_CHOOSER_OFFSET_Y, 0));
 			aSeedChoser->mMenuButton->mY = CalcPosition(aTimeSeedChoserSlideOnStart, aTimeSeedChoserSlideOnEnd, -50, -10);
 			aSeedChoser->mMenuButton->mBtnNoDraw = false;
 		}
@@ -1157,7 +1169,7 @@ void CutScene::AnimateBoard()
 		int aTimeSeedChoserSlideOffEnd = TimeSeedChoserSlideOffEnd + mCrazyDaveTime;
 		if (mCutsceneTime > aTimeSeedChoserSlideOffStart && mCutsceneTime <= aTimeSeedChoserSlideOffEnd)
 		{
-			aSeedChoser->Move(0, CalcPosition(aTimeSeedChoserSlideOffStart, aTimeSeedChoserSlideOffEnd, 0, SEED_CHOOSER_OFFSET_Y));
+			aSeedChoser->Move(pvzu::ChooserScreenX(pvzu::CurrentLayout()) /* PVZU: right of the safe inset */, CalcPosition(aTimeSeedChoserSlideOffStart, aTimeSeedChoserSlideOffEnd, 0, SEED_CHOOSER_OFFSET_Y));
 			aSeedChoser->mMenuButton->mDisabled = true;
 		}
 	}
@@ -1165,8 +1177,18 @@ void CutScene::AnimateBoard()
 	// Pan the board left
 	if (mCutsceneTime > aTimePanLeftStart)
 	{
-		int aPanOffset = CalcPosition(aTimePanLeftStart, aTimePanLeftEnd, BOARD_IMAGE_WIDTH_OFFSET - mApp->mWidth, 0);
+		int aPanOffset = CalcPosition(aTimePanLeftStart, aTimePanLeftEnd, -aCamera.street, -aCamera.rest); // PVZU: ends at rest
 		mBoard->Move(-aPanOffset, 0);
+	}
+	// PVZU: in vanilla the street preview zombies scroll out of view here; the wide view still shows the street,
+	// so fade them out instead of leaving them standing until the level starts. Only at widths above 800.
+	if (mCutsceneTime >= aTimePanLeftEnd && pvzu::engine::IsWideBoard(mBoard) && pvzu::engine::Wide().rightExtra > 0)
+	{
+		for (Zombie* aZombie : mBoard->mZombies)
+		{
+			if (!aZombie->mDead && aZombie->mFromWave == Zombie::ZOMBIE_WAVE_CUTSCENE && aZombie->mZombieFade < 0)
+				aZombie->mZombieFade = 30;
+		}
 	}
 
 	// Seed bank animation
@@ -1180,13 +1202,14 @@ void CutScene::AnimateBoard()
 	if (!mApp->IsChallengeWithoutSeedBank() && mCutsceneTime > aTimeSeedBankOnStart && mCutsceneTime <= aTimeSeedBankOnEnd)
 	{
 		int aSeedBankY = CalcPosition(aTimeSeedBankOnStart, aTimeSeedBankOnEnd, -IMAGE_SEEDBANK->GetHeight(), 0);
-		mBoard->mSeedBank->Move(SEED_BANK_OFFSET_X, aSeedBankY);
+		mBoard->mSeedBank->Move(pvzu::engine::UiX(mBoard, SEED_BANK_OFFSET_X, pvzu::Anchor::Left), aSeedBankY); // PVZU
 	}
 	int aTimeSeedBankRightStart = TimeSeedBankRightStart + mCrazyDaveTime;
 	int aTimeSeedBankRightEnd = TimeSeedBankRightEnd + mCrazyDaveTime;
 	if (mCutsceneTime > aTimeSeedBankRightStart)
 	{
-		int aSeedBankX = CalcPosition(aTimeSeedBankRightStart, aTimeSeedBankRightEnd, SEED_BANK_OFFSET_X, SEED_BANK_OFFSET_X_END);
+		int aSeedBankX = CalcPosition(aTimeSeedBankRightStart, aTimeSeedBankRightEnd,
+			pvzu::engine::UiX(mBoard, SEED_BANK_OFFSET_X, pvzu::Anchor::Left), pvzu::engine::UiX(mBoard, SEED_BANK_OFFSET_X_END, pvzu::Anchor::Left)); // PVZU
 		int aDarken = PvzpAnimateCurve(aTimeSeedBankRightStart, aTimeSeedBankRightEnd, mCutsceneTime, 255, 128, PvzpCurves::CURVE_EASE_OUT);
 		mBoard->mSeedBank->mCutSceneDarken = aDarken;
 		mBoard->mSeedBank->Move(aSeedBankX, mBoard->mSeedBank->mY);
@@ -1466,7 +1489,7 @@ void CutScene::UpdateZombiesWon()
 {
 	if (mCutsceneTime > LostTimePanRightStart && mCutsceneTime <= LostTimePanRightEnd)
 	{
-		mBoard->Move(CalcPosition(LostTimePanRightStart, LostTimePanRightEnd, 0, BOARD_OFFSET), 0);
+		mBoard->Move(CalcPosition(LostTimePanRightStart, LostTimePanRightEnd, pvzu::engine::Camera(mBoard).rest, pvzu::engine::Camera(mBoard).house), 0); // PVZU
 	}
 
 	if (mCutsceneTime == LostTimeBrainGraphicStart - 400 || mCutsceneTime == LostTimeBrainGraphicStart - 900)
@@ -1479,7 +1502,7 @@ void CutScene::UpdateZombiesWon()
 	{
 		ReanimatorEnsureDefinitionLoaded(ReanimationType::REANIM_ZOMBIES_WON, true);
 		int aRenderPosition = Board::MakeRenderOrder(RenderLayer::RENDER_LAYER_SCREEN_FADE, 0, 0);
-		Reanimation* aReanimation = mApp->AddReanimation(-BOARD_OFFSET, 0, aRenderPosition, ReanimationType::REANIM_ZOMBIES_WON);
+		Reanimation* aReanimation = mApp->AddReanimation(pvzu::ZombiesWonReanimBoardX(pvzu::CurrentLayout(), pvzu::engine::Camera(mBoard).house), 0, aRenderPosition, ReanimationType::REANIM_ZOMBIES_WON); // PVZU: centred (vanilla -BOARD_OFFSET)
 		aReanimation->mAnimRate = 12.0f;
 		aReanimation->mLoopType = ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD;
 		aReanimation->GetTrackInstanceByName("fullscreen")->mTrackColor = Color::Black;
@@ -2231,7 +2254,12 @@ void CutScene::DrawUpsell(Graphics* g)
 
 void CutScene::UpdateIntro()
 {
-	mBoard->Move(-PvzpAnimateCurve(TimeIntro_PanRightStart, TimeIntro_PanRightEnd, mCutsceneTime, -100, 100, PvzpCurves::CURVE_LINEAR), 0);
+	{
+		// PVZU: same 200 px pan around the rest position, kept inside the background
+		const pvzu::BoardCamera aCamera = pvzu::engine::Camera(mBoard);
+		int aX = aCamera.rest - PvzpAnimateCurve(TimeIntro_PanRightStart, TimeIntro_PanRightEnd, mCutsceneTime, -100, 100, PvzpCurves::CURVE_LINEAR);
+		mBoard->Move(std::clamp(aX, aCamera.street, aCamera.house), 0);
+	}
 
 	if (mCutsceneTime == 10)
 	{
@@ -2267,7 +2295,7 @@ void CutScene::DrawIntro(Graphics* g)
 	if (mCutsceneTime <= TimeIntro_PanRightStart || mCutsceneTime > TimeIntro_FadeOutEnd)
 	{
 		g->SetColor(Color::Black);
-		g->FillRect(-mBoard->mX, -mBoard->mY, BOARD_WIDTH, BOARD_HEIGHT);
+		g->FillRect(-mBoard->mX, -mBoard->mY, mApp->mWidth, BOARD_HEIGHT); // PVZU: whole screen
 	}
 
 	// Draw the "PopCap Games presents" text
@@ -2281,7 +2309,7 @@ void CutScene::DrawIntro(Graphics* g)
 		PvzpDrawString(
 			g,
 			"[INTRO_PRESENTS]",
-			BOARD_WIDTH / 2 - mBoard->mX,
+			mApp->mWidth / 2 - mBoard->mX, // PVZU: screen centre
 			310 - mBoard->mY,
 			FONT_BRIANNETOD32,
 			Color(255, 255, 255, anAlpha),
@@ -2294,7 +2322,7 @@ void CutScene::DrawIntro(Graphics* g)
 	{
 		float aScale = PvzpAnimateCurveFloat(TimeIntro_LogoStart, TimeIntro_LogoEnd, mCutsceneTime, 5, 1, PvzpCurves::CURVE_EASE_OUT);
 		float aCenter = aScale * 0.5;
-		int aOffsetX = BOARD_WIDTH / 2 - mBoard->mX, aOffsetY = BOARD_HEIGHT / 2 - mBoard->mY;
+		int aOffsetX = mApp->mWidth / 2 - mBoard->mX, aOffsetY = BOARD_HEIGHT / 2 - mBoard->mY; // PVZU: screen centre
 		Rect aRect(aOffsetX - BOARD_WIDTH * aCenter, aOffsetY - 75 * aScale, BOARD_WIDTH * aScale, 150 * aScale);
 		g->SetColor(Color(0, 0, 0, 128));
 		g->FillRect(aRect);
@@ -2305,7 +2333,7 @@ void CutScene::DrawIntro(Graphics* g)
 	if (mCutsceneTime > TimeIntro_FadeOut && mCutsceneTime <= TimeIntro_FadeOutEnd)
 	{
 		g->SetColor(Color(0, 0, 0, PvzpAnimateCurve(TimeIntro_FadeOut, TimeIntro_FadeOutEnd, mCutsceneTime, 0, 255, PvzpCurves::CURVE_LINEAR)));
-		g->FillRect(-mBoard->mX, -mBoard->mY, BOARD_WIDTH, BOARD_HEIGHT);
+		g->FillRect(-mBoard->mX, -mBoard->mY, mApp->mWidth, BOARD_HEIGHT); // PVZU: whole screen
 	}
 }
 

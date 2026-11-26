@@ -19,6 +19,7 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Engine/WideScreen.h" // PVZU
 #include "ZombatarWidget.h"
 #include "GameSelector.h"
 #include "GameButton.h"
@@ -329,7 +330,7 @@ ZombatarWidget::ZombatarWidget(GameSelector* theGameSelector)
 		IMAGE_ZOMBATAR_NEXT_BUTTON, IMAGE_ZOMBATAR_NEXT_BUTTON_HIGHLIGHT, nullptr);
 	mNextPageButton->Resize(ZOMBATAR_NEXT_PAGE_X, ZOMBATAR_PAGE_BTN_Y, 33, 38);
 
-	Resize(800, 0, BOARD_WIDTH, BOARD_HEIGHT);
+	Resize(pvzu::engine::CenteredX() + 800, 0, BOARD_WIDTH, BOARD_HEIGHT); // PVZU: right of the centred selector
 	ResetDraft();
 	UpdateButtonState();
 }

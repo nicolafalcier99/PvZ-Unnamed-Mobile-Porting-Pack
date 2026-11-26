@@ -19,6 +19,44 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Capacity.h" // PVZU
+#include "Mod/Engine/OptionsPanel.h" // PVZU
+#include "Mod/Engine/LawnHoldInfo.h" // PVZU: touch hold-for-stats panel
+#include "Mod/Engine/ModAlmanac.h" // PVZU: mod-plant hints (feature modAlmanac)
+#include "Mod/Engine/TestCheats.h" // PVZU Plan 9 C1: the test cheats
+#include "Mod/Mode.h" // PVZU
+#include "Mod/SeedSlots.h" // PVZU
+#include "Mod/Engine/DevLevels.h" // PVZU
+#include "Mod/Engine/DayLevels.h" // PVZU
+#include "Mod/Engine/NightLevels.h" // PVZU
+#include "Mod/Engine/RoofEliteZombies.h" // PVZU
+#include "Mod/Engine/PoolLevels.h" // PVZU
+#include "Mod/Engine/FogLevels.h" // PVZU
+#include "Mod/Engine/RoofLevels.h" // PVZU
+#include "Mod/Engine/LaterLevels.h" // PVZU Plan 7: Adventure 51-73
+#include "Mod/Engine/SpecialLevels.h" // PVZU Plan 7 Task 3 hook points (no-ops until then)
+#include "Mod/Engine/SpecialLevelHooks.h" // PVZU Plan 7 Task 3a: 6-5, 6-10, 7-5, 71-73
+#include "Mod/Engine/Level70Boss.h" // PVZU: the 7-10 boss meter and Sprout cards (Plan 7 Task 3b)
+#include "Mod/Engine/ModModes.h" // PVZU: Unnamed mod-only modes 0x65..0x94 (feature modModes)
+#include "Mod/GameData.h" // PVZU
+#include "Mod/Unnamed/Levels.h" // PVZU
+#include "Mod/Unnamed/PoolPlants.h" // PVZU
+#include "Mod/Unnamed/FogPlants.h" // PVZU
+#include "Mod/Engine/RoofPlantSites.h" // PVZU
+#include "Mod/Engine/DevHarness.h" // PVZU
+#include "Mod/Engine/EliteZombies.h" // PVZU
+#include "Mod/Engine/FogEliteZombies.h" // PVZU
+#include "Mod/StreetFog.h" // PVZU
+#include "Mod/Engine/WideScreen.h" // PVZU
+#include "Mod/Engine/MobilePlanting.h" // PVZU
+#include "Mod/Engine/Zoom.h" // PVZU
+#include "Mod/Engine/ModesVanilla.h" // PVZU
+#include "Mod/Engine/World7EliteZombies.h" // PVZU: world-7 Flag rows (Plan 7 Task 2)
+#include "Mod/Engine/ModPlants.h" // PVZU: mod-only plants (Plan 8)
+#include "Mod/Engine/ModPlantsSpecials.h" // PVZU Plan 8 part 3b: special mod plants
+#include "Mod/Engine/ModPlantsShooters.h" // PVZU: Loaded Cannon loading (Plan 8 part 3a)
+#include "Mod/Engine/ModPlantsShadow.h" // PVZU: mod-plant layers and placement (Plan 8 part 3c)
+#include "Mod/Engine/ModVisuals.h" // PVZU Plan 9 L3: Element icons, Sniper mark, info tooltip
 #include <time.h>
 #include <algorithm>
 #include <SDL3/SDL.h>
@@ -76,7 +114,7 @@ Board::Board(LawnApp* theApp)
 
 	mZombies.DataArrayInitialize(1024U, "zombies");
 	mPlants.DataArrayInitialize(1024U, "plants");
-	mProjectiles.DataArrayInitialize(1024U, "projectiles");
+	mProjectiles.DataArrayInitialize(pvzu::kEffectArrayCapacity, "projectiles"); // PVZU: was 1024
 	mCoins.DataArrayInitialize(1024U, "coins");
 	mLawnMowers.DataArrayInitialize(32U, "lawnmowers");
 	mGridItems.DataArrayInitialize(128U, "griditems");
@@ -235,7 +273,10 @@ Board::Board(LawnApp* theApp)
 	}
 }
 
-Board::~Board() = default;
+Board::~Board()
+{
+	pvzu::engine::ModModeBoardGone(); // PVZU: mod mode 0x69 changed Color::White (hook 103); put it back
+}
 
 void BoardInitForPlayer()
 {
@@ -325,7 +366,7 @@ void Board::TryToSaveGame()
 			return;
 		}
 
-		MkDir(GetAppDataPath("userdata"));
+		MkDir(GetAppDataPath(pvzu::CurrentUserDataPath("")) /* PVZU: per-mode saves */);
 		mApp->mMusic->GameMusicPause(true);
 		LawnSaveGame(this, aFileName);
 		mApp->ClearUpdateBacklog();
@@ -367,6 +408,7 @@ bool Board::LoadGame(const std::string& theFileName)
 	mApp->ClearUpdateBacklog();
 	ResetFPSStats();
 	UpdateLayers();
+	pvzu::engine::PlaceBoard(this); // PVZU: background known now (wide lawn or centred 800 board)
 	return true;
 }
 
@@ -442,6 +484,8 @@ bool Board::CanAddGraveStoneAt(int theGridX, int theGridY)
 				return false;
 		}
 	}
+	if (pvzu::engine::RoofGraveBlockedByPot(this, theGridX, theGridY)) // PVZU: Unnamed no grave on a Flower Pot (hook 18)
+		return false;
 	return true;
 }
 
@@ -579,7 +623,7 @@ void Board::PickZombieWaves()
 		}
 		else
 		{
-			mNumWaves = gZombieWaves[std::clamp(mLevel - 1, 0, NUM_LEVELS - 1)];
+			mNumWaves = pvzu::engine::LaterLevelsNumWaves(this, gZombieWaves[pvzu::unnamed::VanillaLevelIndex(mLevel, NUM_LEVELS)]); // PVZU: 51-73 from the pack table (hook 19)
 			if (!mApp->IsFirstTimeAdventureMode() && !mApp->IsMiniBossLevel())
 			{
 				mNumWaves = mNumWaves < 10 ? 20 : mNumWaves + 10;
@@ -605,7 +649,8 @@ void Board::PickZombieWaves()
 				 aGameMode == GameMode::GAMEMODE_CHALLENGE_WALLNUT_BOWLING_2 || aGameMode == GameMode::GAMEMODE_CHALLENGE_POGO_PARTY)
 			mNumWaves = 30;
 		else
-			mNumWaves = 40;
+			mNumWaves = pvzu::engine::ModModeNumWaves(this, 40); // PVZU: mod modes 0x65..0x94
+		mNumWaves = pvzu::engine::ModesNumWaves(mApp, mNumWaves); // PVZU: V2 Unnamed mini-game wave counts (0x409394..)
 	}
 
 	ZombiePicker aZombiePicker;
@@ -664,6 +709,7 @@ void Board::PickZombieWaves()
 		}
 
 		// Certain levels multiply the zombie points
+		const int aPvzuPointsBeforeMultiplier = aZombiePoints; // PVZU
 		if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_COLUMN)
 		{
 			aZombiePoints *= 6;
@@ -684,6 +730,12 @@ void Board::PickZombieWaves()
 		{
 			aZombiePoints *= 2;
 		}
+		if (pvzu::GameData::Get().Feature("dayLevels")) // PVZU: Unnamed x4 on every adventure level (hook 22)
+		{
+			aZombiePoints = pvzu::unnamed::WaveBudget(aPvzuPointsBeforeMultiplier, aZombiePoints, mApp->IsAdventureMode());
+		}
+		aZombiePoints = pvzu::engine::SpecialWaveBudget(this, aPvzuPointsBeforeMultiplier, aZombiePoints); // PVZU: 71 x112 (hook 21)
+		aZombiePoints = pvzu::engine::ModModeWaveBudget(this, aPvzuPointsBeforeMultiplier, aZombiePoints, aWave); // PVZU: V2 0x6e x28, 0x7e (hook 21)
 
 		// Newly introduced zombies have fixed spawns in specific waves
 		if (aIntroZombieType != ZombieType::ZOMBIE_INVALID && aIntroZombieType != ZombieType::ZOMBIE_DUCKY_TUBE)
@@ -762,9 +814,19 @@ void Board::PickZombieWaves()
 		while (aZombiePoints > 0 && aZombiePicker.mZombieCount < MAX_ZOMBIES_IN_WAVE)
 		{
 			ZombieType aZombieType = PickZombieType(aZombiePoints, aWave, &aZombiePicker);
+			if (pvzu::GameData::Get().Feature("dayLevels") && pvzu::unnamed::ForceFlagAt(mLevel, aWave, aZombiePicker.mZombieCount)) // PVZU: 1-1 wave 4 slot 2 Flag (hook 23)
+			{
+				aZombieType = ZombieType::ZOMBIE_FLAG;
+			}
 			PutZombieInWave(aZombieType, aWave, &aZombiePicker);
 		}
 	}
+	pvzu::engine::DevLogNight(this); // PVZU: -pvzu-log-waves graves + allowed types (no game effect)
+	pvzu::engine::DevLogPool(this); // PVZU: -pvzu-log-waves pool rule line (no game effect)
+	pvzu::engine::DevLogFog(this); // PVZU: -pvzu-log-waves fog rule line (no game effect)
+	pvzu::engine::DevLogRoof(this); // PVZU: -pvzu-log-waves roof rule line (no game effect)
+	pvzu::engine::DevLogLaterLevel(this); // PVZU: -pvzu-log-waves levels 51-73 rule line (no game effect)
+	pvzu::engine::DevLogWaves(this); // PVZU: -pvzu-log-waves dev log (no game effect)
 }
 
 int Board::GetLevelRandSeed()
@@ -845,7 +907,10 @@ void Board::PickBackground()
 	switch (mApp->mGameMode)
 	{
 	case GameMode::GAMEMODE_ADVENTURE:
-		if (mLevel <= 1 * LEVELS_PER_AREA)
+		if (pvzu::engine::LaterLevelsBackground(this)) // PVZU: 51-73 from the pack table (hook 24)
+		{
+		}
+		else if (mLevel <= 1 * LEVELS_PER_AREA)
 		{
 			mBackground = BackgroundType::BACKGROUND_1_DAY;
 		}
@@ -979,12 +1044,19 @@ void Board::PickBackground()
 		break;
 
 	default:
-		PVZP_ASSERT(false);
+		if (!pvzu::engine::ModModeBackground(this)) // PVZU: mod modes 0x65..0x94 (hook 25)
+			PVZP_ASSERT(false);
 		break;
 	}
 	LoadBackgroundImages();
 
-	if (mBackground == BackgroundType::BACKGROUND_1_DAY || mBackground == BackgroundType::BACKGROUND_GREENHOUSE || mBackground == BackgroundType::BACKGROUND_TREEOFWISDOM)
+	if (pvzu::engine::LaterLevelsPlantRows(this)) // PVZU: mushroom garden / Zombiquarium as an Adventure lawn (hooks 26, 27)
+	{
+	}
+	else if (pvzu::engine::ModModePlantRows(this)) // PVZU: the same lawns in mod modes 0x6c/0x71/0x82/0x88
+	{
+	}
+	else if (mBackground == BackgroundType::BACKGROUND_1_DAY || mBackground == BackgroundType::BACKGROUND_GREENHOUSE || mBackground == BackgroundType::BACKGROUND_TREEOFWISDOM)
 	{
 		mPlantRow[0] = PlantRowType::PLANTROW_NORMAL;
 		mPlantRow[1] = PlantRowType::PLANTROW_NORMAL;
@@ -1095,6 +1167,9 @@ void Board::PickBackground()
 				AddGraveStones(7, 2, aLevelRNG);
 				AddGraveStones(8, 3, aLevelRNG);
 			}
+			else if (pvzu::GameData::Get().Feature("nightLevels") && pvzu::engine::NightPlaceStartGraves(this, aLevelRNG)) // PVZU: Unnamed start graves (2-8 has 7, exe 0x40A978)
+			{
+			}
 			else if (mLevel == 11 || mLevel == 12 || mLevel == 13)
 			{
 				AddGraveStones(6, 1, aLevelRNG);
@@ -1185,11 +1260,15 @@ void Board::InitZombieWaves()
 	memset(mZombieAllowed, false, sizeof(mZombieAllowed));
 	if (mApp->IsAdventureMode())
 	{
-		InitZombieWavesForLevel(mLevel);
+		if (!pvzu::engine::LaterLevelsAllowed(this)) // PVZU: 51-73 allow lists from the pack table (hooks 28, 176)
+		{
+			InitZombieWavesForLevel(mLevel);
+		}
 	}
 	else
 	{
 		mChallenge->InitZombieWaves();
+		pvzu::engine::ModModeAllowed(this); // PVZU: mod modes 0x65..0x94 allow lists (hook 180)
 	}
 	PickZombieWaves();
 	PVZP_ASSERT(IsZombieWaveDistributionOk());
@@ -1209,6 +1288,7 @@ void Board::InitZombieWaves()
 	{
 		mZombieCountDown = ZOMBIE_COUNTDOWN_FIRST_WAVE;
 	}
+	pvzu::engine::LaterLevelsFirstWaveCountdown(this); // PVZU: level 73 waits 5000 cs (hook 29)
 
 	mZombieHealthWaveStart = 0;
 	mLastBungeeWave = 0;
@@ -1281,6 +1361,11 @@ Rect Board::GetShovelButtonRect()
 	if (mApp->IsSlotMachineLevel() || mApp->IsSquirrelLevel())
 	{
 		aRect.mX = 600;
+	}
+	aRect.mX = pvzu::engine::UiX(this, aRect.mX, pvzu::Anchor::Left); // PVZU: shovel stays beside the seed bank at the left edge
+	if (pvzu::engine::HudLayout(this)) // PVZU: or in the HUD's top bar (in every scene, as vanilla's shovel bank)
+	{
+		aRect = pvzu::engine::HudShovelRect(this);
 	}
 	return aRect;
 }
@@ -1357,6 +1442,7 @@ void Board::InitLevel()
 	{
 		mSunMoney = 50;
 	}
+	pvzu::engine::LaterLevelsStartSun(this); // PVZU: 51-73 start sun from the pack table (hook 30)
 
 	memset(mRowPickingArray, 0, sizeof(mRowPickingArray));
 	for (int aRow = 0; aRow < MAX_GRID_SIZE_Y; aRow++)
@@ -1494,10 +1580,13 @@ void Board::InitLevel()
 	}
 	else if (mApp->IsWhackAZombieLevel())
 	{
+		if (!pvzu::engine::ModesWhackBank(this)) // PVZU: V2 Unnamed mini-game bank Cherry x3, Jalapeno x3, Doom x3, Ice (hook 34)
+		{
 		PVZP_ASSERT(mSeedBank->mNumPackets == 3);
 		mSeedBank->mSeedPackets[0].SetPacketType(SeedType::SEED_POTATOMINE);
 		mSeedBank->mSeedPackets[1].SetPacketType(SeedType::SEED_GRAVEBUSTER);
 		mSeedBank->mSeedPackets[2].SetPacketType(mApp->IsAdventureMode() ? SeedType::SEED_CHERRYBOMB : SeedType::SEED_ICESHROOM);
+		}
 	}
 	else if (aGameMode == GameMode::GAMEMODE_CHALLENGE_ZOMBIQUARIUM) {
 		mSeedBank->mSeedPackets[0].SetPacketType(SeedType::SEED_ZOMBIQUARIUM_SNORKLE);
@@ -1522,6 +1611,9 @@ void Board::InitLevel()
 		mFogOffset = 1065 - LeftFogColumn() * 80;
 	}
 	mChallenge->InitLevel();
+	pvzu::engine::SpecialLevelInit(this); // PVZU: special levels 55/65/70/71-73 (Plan 7 Task 3; no-op now)
+	pvzu::engine::ModModeInitLevel(this); // PVZU: mod modes 0x65..0x94
+	pvzu::engine::PlaceBoard(this); // PVZU: background known now (wide lawn or centred 800 board)
 }
 
 Reanimation* Board::CreateRakeReanim(float theRakeX, float theRakeY, int theRenderOrder)
@@ -1592,7 +1684,7 @@ void Board::InitLawnMowers()
 	if (aGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED || aGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED_TWIST ||
 		aGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN || aGameMode == GameMode::GAMEMODE_TREE_OF_WISDOM ||
 		aGameMode == GameMode::GAMEMODE_CHALLENGE_LAST_STAND || aGameMode == GameMode::GAMEMODE_CHALLENGE_ZOMBIQUARIUM ||
-		mApp->IsSquirrelLevel() || mApp->IsIZombieLevel() || (StageHasRoof() && !mApp->mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_ROOF_CLEANER]))
+		mApp->IsSquirrelLevel() || mApp->IsIZombieLevel() || (pvzu::engine::StageCountsAsRoof(this) && !mApp->mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_ROOF_CLEANER])) // PVZU: V2 greenhouse (0x40bce2)
 		return;
 
 	for (int aRow = 0; aRow < MAX_GRID_SIZE_Y; aRow++)
@@ -1610,6 +1702,8 @@ void Board::InitLawnMowers()
 
 bool Board::ChooseSeedsOnCurrentLevel()
 {
+	if (bool aPvzuShow = true; pvzu::engine::ModModeChooser(this, aPvzuShow)) // PVZU: mod modes 0x76/0x79/0x8b/0x8d/0x8e (hooks 35, 36)
+		return aPvzuShow;
 	if (mApp->IsChallengeWithoutSeedBank() || HasConveyorBeltSeedBank())
 		return false;
 
@@ -1630,6 +1724,9 @@ void Board::StartLevel()
 	mCoinBankFadeCount = 0;
 	mApp->mLastLevelStats->Reset();
 	mChallenge->StartLevel();
+	pvzu::engine::DevOnStartLevel(this); // PVZU: -pvzu-dev-vault dev scenario (no effect without the flag)
+	pvzu::engine::SpecialLevelStart(this); // PVZU: special levels (Plan 7 Task 3; no-op now)
+	pvzu::engine::ModModeStartLevel(this); // PVZU: mod modes 0x65..0x94
 
 	// the unsigned underflow below is intentional
 	unsigned int aSurvivalStage = mApp->mGameMode - GAMEMODE_SURVIVAL_ENDLESS_STAGE_1;
@@ -1989,7 +2086,7 @@ SeedType Board::GetSeedTypeInCursor()
 	{
 		return SeedType::SEED_NONE;
 	}
-	return mCursorObject->mType == SeedType::SEED_IMITATER ? mCursorObject->mImitaterType : mCursorObject->mType;
+	return mCursorObject->mType == SeedType::SEED_IMITATER ? mCursorObject->mImitaterType : pvzu::engine::ModPlantingSeed(mCursorObject->mType); // PVZU: a mod seed plants by its base's rules
 }
 
 void Board::RefreshSeedPacketFromCursor()
@@ -2070,7 +2167,11 @@ void Board::DoPlantingEffects(int theGridX, int theGridY, Plant* thePlant)
 
 Plant* Board::AddPlant(int theGridX, int theGridY, SeedType theSeedType, SeedType theImitaterType)
 {
+	const SeedType aPvzuAskedSeed = theSeedType; // PVZU: a mod seed (0x50..0x7f) is planted as its base plant, tagged
+	theSeedType = pvzu::engine::ModAddPlantBase(theSeedType);
 	Plant* aPlant = NewPlant(theGridX, theGridY, theSeedType, theImitaterType);
+	pvzu::engine::ModPlantPlanted(aPlant, aPvzuAskedSeed); // PVZU
+	pvzu::engine::ModModePlantAdded(aPlant); // PVZU: mod mode 0x88 claims the cell (hook 38)
 	DoPlantingEffects(theGridX, theGridY, aPlant);
 	mChallenge->PlantAdded(aPlant);
 
@@ -2181,8 +2282,12 @@ void Board::GetPlantsOnLawn(int theGridX, int theGridY, PlantsOnLawn* thePlantOn
 		{
 			continue;
 		}
+		if (aPlant->mPvzu.modSeed != 0 && pvzu::engine::ModPlantLeftItsSquare(aPlant)) // PVZU: a rolled-away Bowling Wall-nut
+		{
+			continue;
+		}
 
-		if (Plant::IsFlying(aSeedType))
+		if (Plant::IsFlying(aSeedType) || (aPlant->mPvzu.modSeed != 0 && pvzu::engine::ModPlantFlyingSlot(aPlant))) // PVZU: hook 41
 		{
 			PVZP_ASSERT(!thePlantOnLawn->mFlyingPlant);
 			thePlantOnLawn->mFlyingPlant = aPlant;
@@ -2301,7 +2406,7 @@ bool Board::IsValidCobCannonSpotHelper(int theGridX, int theGridY)
 	if (aPlantOnLawn.mNormalPlant && aPlantOnLawn.mNormalPlant->mSeedType == SeedType::SEED_KERNELPULT)
 		return true;
 
-	return mApp->mEasyPlantingCheat && CanPlantAt(theGridX, theGridY, SeedType::SEED_KERNELPULT) == PlantingReason::PLANTING_OK;
+	return (mApp->mEasyPlantingCheat || pvzu::engine::TestCheatFreePlantingRules() /* PVZU Plan 9 C1 */) && CanPlantAt(theGridX, theGridY, SeedType::SEED_KERNELPULT) == PlantingReason::PLANTING_OK;
 }
 
 bool Board::IsValidCobCannonSpot(int theGridX, int theGridY)
@@ -2341,13 +2446,18 @@ bool Board::CanZombieSpawnOnLevel(ZombieType theZombieType, int theLevel)
 		return gLawnApp->CanSpawnYetis();
 	}
 
-	if (theLevel < aZombieDef.mStartingLevel || aZombieDef.mPickWeight == 0)
+	const bool aPvzuUsesStartingLevel = !pvzu::GameData::Get().Feature("dayLevels") || pvzu::unnamed::AllowCheckUsesStartingLevel(); // PVZU: patch 0x40d6a3
+	if ((aPvzuUsesStartingLevel && theLevel < aZombieDef.mStartingLevel) || aZombieDef.mPickWeight == 0)
 	{
 		return false;
 	}
 
+	if (pvzu::GameData::Get().Feature("nightLevels") && pvzu::engine::NightAllowsZombie(theZombieType, theLevel)) // PVZU: exe allow table 0x6A35B0 (2-1 Conehead)
+	{
+		return true;
+	}
 	PVZP_ASSERT(gZombieAllowedLevels[theZombieType].mZombieType == theZombieType);
-	return gZombieAllowedLevels[theZombieType].mAllowedOnLevel[std::clamp(theLevel - 1, 0, NUM_LEVELS - 1)];
+	return gZombieAllowedLevels[theZombieType].mAllowedOnLevel[pvzu::engine::LaterLevelsAllowIndex(theLevel)]; // PVZU: never past column 49; Unnamed > 50 reads column 0 (0x40d6c7)
 }
 
 ZombieType Board::GetIntroducedZombieType()
@@ -2417,9 +2527,10 @@ ZombieType Board::PickZombieType(int theZombiePoints, int theWaveIndex, ZombiePi
 				continue;
 			}
 		}
-		else if (aGameMode != GameMode::GAMEMODE_CHALLENGE_POGO_PARTY && aGameMode != GameMode::GAMEMODE_CHALLENGE_BOBSLED_BONANZA && aGameMode != GameMode::GAMEMODE_CHALLENGE_AIR_RAID)
+		else if (aGameMode != GameMode::GAMEMODE_CHALLENGE_POGO_PARTY && aGameMode != GameMode::GAMEMODE_CHALLENGE_BOBSLED_BONANZA && aGameMode != GameMode::GAMEMODE_CHALLENGE_AIR_RAID &&
+			!pvzu::engine::ModModeNoWaveGate(this) && !pvzu::engine::NoSpawnLimitOn()) // PVZU: mod modes 0x79/0x85, HARDSP (hook 42)
 		{
-			int aFirstAllowedWave = aZombieDef.mFirstAllowedWave;
+			int aFirstAllowedWave = pvzu::engine::SpecialFirstWave(this, static_cast<ZombieType>(aZombieType), aZombieDef.mFirstAllowedWave); // PVZU: 73 Newspaper wave 5 (hook 43)
 			// Endless mode gradually moves the first allowed wave earlier
 			if (mApp->IsSurvivalEndless(aGameMode))
 			{
@@ -2622,6 +2733,7 @@ Zombie* Board::AddZombieInRow(ZombieType theZombieType, int theRow, int theFromW
 	bool aVariant = !Rand(5);
 	Zombie* aZombie = mZombies.DataArrayAlloc();
 	aZombie->ZombieInitialize(theRow, theZombieType, aVariant, nullptr, theFromWave);
+	pvzu::engine::ModModeZombieAdded(aZombie); // PVZU: mod mode 0x7e (hook 44)
 	if (theZombieType == ZombieType::ZOMBIE_BOBSLED && aZombie->IsOnBoard())
 	{
 		for (int _i = 0; _i < 3; _i++)
@@ -2698,6 +2810,11 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 		return aReason;
 	}
 
+	if (pvzu::engine::ModModeBlocksPlanting(this) || pvzu::engine::ModModeGloveRefuses(this, theGridX)) // PVZU: mod modes 0x7b (hook 46), 0x90 (hook 173)
+	{
+		return PlantingReason::PLANTING_NOT_HERE;
+	}
+
 	PlantsOnLawn aPlantOnLawn;
 	GetPlantsOnLawn(theGridX, theGridY, &aPlantOnLawn);
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN)
@@ -2712,6 +2829,15 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 		}
 
 		return PlantingReason::PLANTING_OK;
+	}
+
+	if (pvzu::engine::RoofBlocksPlanting(this, theGridX, theGridY)) // PVZU: Unnamed wheelbarrow bungee blocks its 3x3 (hook 46)
+	{
+		return PlantingReason::PLANTING_NOT_HERE;
+	}
+	if (const auto aPvzuReason = pvzu::engine::ModPlantCanPlantAt(this, theGridX, theGridY, theSeedType)) // PVZU: mod plants (hooks 47, 62)
+	{
+		return *aPvzuReason;
 	}
 
 	bool aHasGrave = GetGraveStoneAt(theGridX, theGridY);
@@ -2770,6 +2896,12 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 		return PlantingReason::PLANTING_NOT_HERE;
 	}
 	Plant* aNormalPlant = aPlantOnLawn.mNormalPlant;
+	// PVZU: Unnamed Tangle Kelp on any ground: skips the water and pot tests (hooks 48/49 -> shared tail 0x95BF50)
+	if (const auto aPvzuTangle = pvzu::unnamed::TangleKelpPlacement(theSeedType, aUnderPlant && aUnderPlant->mSeedType == SeedType::SEED_IMITATER,
+			aNormalPlant != nullptr); aPvzuTangle != pvzu::unnamed::TanglePlacement::Vanilla)
+	{
+		return aPvzuTangle == pvzu::unnamed::TanglePlacement::Ok ? PlantingReason::PLANTING_OK : PlantingReason::PLANTING_NOT_HERE;
+	}
 	if (theSeedType == SeedType::SEED_LILYPAD || theSeedType == SeedType::SEED_TANGLEKELP || theSeedType == SeedType::SEED_SEASHROOM)
 	{
 		if (!IsPoolSquare(theGridX, theGridY))
@@ -2783,9 +2915,9 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 	{
 		return aPlantOnLawn.mFlyingPlant ? PlantingReason::PLANTING_NOT_HERE : PlantingReason::PLANTING_OK;
 	}
-	if (theSeedType == SeedType::SEED_SPIKEWEED || theSeedType == SeedType::SEED_SPIKEROCK)
+	if (pvzu::unnamed::SpikeweedNeedsGround(theSeedType)) // PVZU: V2 Unnamed Spikeweed skips this test (0x40e233 NOPs)
 	{
-		if (aGridSquare == GridSquareType::GRIDSQUARE_POOL || StageHasRoof() || aUnderPlant)
+		if (aGridSquare == GridSquareType::GRIDSQUARE_POOL || pvzu::engine::StageCountsAsRoof(this) || aUnderPlant) // PVZU: V2 greenhouse
 		{
 			return PlantingReason::PLANTING_NEEDS_GROUND;
 		}
@@ -2803,9 +2935,11 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 	{
 		return (aNormalPlant || aUnderPlant || aPumpkinPlant) ? PlantingReason::PLANTING_NOT_HERE : PlantingReason::PLANTING_OK;
 	}
-	if (StageHasRoof() && !aHasFlowerPot)
+	if (pvzu::engine::StageCountsAsRoof(this)) // PVZU: V2 greenhouse counts as roof (0x41c0b6); Spikeweed (hook 49)
 	{
-		return PlantingReason::PLANTING_NEEDS_POT;
+		const auto aPvzuSpike = pvzu::unnamed::SpikeweedRoofPot(theSeedType, aHasFlowerPot);
+		if (aPvzuSpike == pvzu::unnamed::RoofPot::Refused || (aPvzuSpike == pvzu::unnamed::RoofPot::Vanilla && !aHasFlowerPot))
+			return PlantingReason::PLANTING_NEEDS_POT;
 	}
 	bool aAidPurchased = mApp->mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_FIRSTAID] > 0;
 	if (theSeedType == SeedType::SEED_PUMPKINSHELL)
@@ -2882,8 +3016,10 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 		return PlantingReason::PLANTING_NOT_HERE;
 	}
 
+	if (pvzu::engine::ModModeFreeUpgrades(this)) // PVZU: mod modes 0x7d/0x8d/0x91, upgrade plants need no base (hook 53)
+		return PlantingReason::PLANTING_OK;
 	// the easy planting cheat skips the upgrade requirement
-	if (!mApp->mEasyPlantingCheat && Plant::IsUpgrade(theSeedType))
+	if (!mApp->mEasyPlantingCheat && !pvzu::engine::TestCheatFreePlantingRules() /* PVZU Plan 9 C1 */ && Plant::IsUpgrade(theSeedType))
 	{
 		return PlantingReason::PLANTING_NEEDS_UPGRADE;
 	}
@@ -2922,6 +3058,7 @@ void Board::UpdateCursor(const HitResult* theHitResult)
 	HitResult aLocalHitResult;
 	if (theHitResult == nullptr)
 	{
+		pvzu::engine::LocalToBoard(this, aMouseX, aMouseY); // PVZU: board zoom
 		MouseHitTest(aMouseX, aMouseY, &aLocalHitResult);
 		theHitResult = &aLocalHitResult;
 	}
@@ -2968,7 +3105,8 @@ void Board::UpdateCursor(const HitResult* theHitResult)
 		{
 			aShowFinger = true;
 		}
-		if (((Plant*)theHitResult->mObject)->mState == PlantState::STATE_COBCANNON_READY)
+		if (((Plant*)theHitResult->mObject)->mState == PlantState::STATE_COBCANNON_READY ||
+			(((Plant*)theHitResult->mObject)->mPvzu.modSeed != 0 && pvzu::engine::ModPlantShowsFinger((Plant*)theHitResult->mObject))) // PVZU: Prism-shroom (hook 54)
 		{
 			aShowFinger = true;
 		}
@@ -3101,6 +3239,7 @@ void Board::UpdateMousePosition()
 	SeedType aCursorSeedType = GetSeedTypeInCursor();
 	int aMouseX = mApp->mWidgetManager->mLastMouseX - mX;
 	int aMouseY = mApp->mWidgetManager->mLastMouseY - mY;
+	pvzu::engine::LocalToBoard(this, aMouseX, aMouseY); // PVZU: board zoom
 	HitResult aHitResult;
 	MouseHitTest(aMouseX, aMouseY, &aHitResult);
 
@@ -3159,8 +3298,8 @@ void Board::UpdateMousePosition()
 	// coffee bean and wall-nut first aid highlighting
 	if (aCursorSeedType == SeedType::SEED_INSTANT_COFFEE)
 	{
-		int aGridX = PlantingPixelToGridX(mApp->mWidgetManager->mLastMouseX, mApp->mWidgetManager->mLastMouseY, aCursorSeedType);
-		int aGridY = PlantingPixelToGridY(mApp->mWidgetManager->mLastMouseX, mApp->mWidgetManager->mLastMouseY, aCursorSeedType);
+		int aGridX = PlantingPixelToGridX(pvzu::engine::MouseBoardX(this, mApp->mWidgetManager->mLastMouseX), pvzu::engine::MouseBoardY(this, mApp->mWidgetManager->mLastMouseY), aCursorSeedType); // PVZU: board coordinates
+		int aGridY = PlantingPixelToGridY(pvzu::engine::MouseBoardX(this, mApp->mWidgetManager->mLastMouseX), pvzu::engine::MouseBoardY(this, mApp->mWidgetManager->mLastMouseY), aCursorSeedType);
 
 		Plant* aPlant = GetTopPlantAt(aGridX, aGridY, PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
 		if (aPlant && aPlant->mIsAsleep && CanPlantAt(aGridX, aGridY, SeedType::SEED_INSTANT_COFFEE) == PlantingReason::PLANTING_OK)
@@ -3170,8 +3309,8 @@ void Board::UpdateMousePosition()
 	}
 	else if (aCursorSeedType == SeedType::SEED_WALLNUT || aCursorSeedType == SeedType::SEED_TALLNUT)
 	{
-		int aGridX = PlantingPixelToGridX(mApp->mWidgetManager->mLastMouseX, mApp->mWidgetManager->mLastMouseY, aCursorSeedType);
-		int aGridY = PlantingPixelToGridY(mApp->mWidgetManager->mLastMouseX, mApp->mWidgetManager->mLastMouseY, aCursorSeedType);
+		int aGridX = PlantingPixelToGridX(pvzu::engine::MouseBoardX(this, mApp->mWidgetManager->mLastMouseX), pvzu::engine::MouseBoardY(this, mApp->mWidgetManager->mLastMouseY), aCursorSeedType); // PVZU: board coordinates
+		int aGridY = PlantingPixelToGridY(pvzu::engine::MouseBoardX(this, mApp->mWidgetManager->mLastMouseX), pvzu::engine::MouseBoardY(this, mApp->mWidgetManager->mLastMouseY), aCursorSeedType);
 
 		Plant* aPlant = GetTopPlantAt(aGridX, aGridY, PlantPriority::TOPPLANT_ONLY_PUMPKIN);
 		if (aPlant && aPlant->mSeedType == aCursorSeedType && CanPlantAt(aGridX, aGridY, aCursorSeedType) == PlantingReason::PLANTING_OK)
@@ -3181,8 +3320,8 @@ void Board::UpdateMousePosition()
 	}
 	else if (aCursorSeedType == SeedType::SEED_PUMPKINSHELL)
 	{
-		int aGridX = PlantingPixelToGridX(mApp->mWidgetManager->mLastMouseX, mApp->mWidgetManager->mLastMouseY, aCursorSeedType);
-		int aGridY = PlantingPixelToGridY(mApp->mWidgetManager->mLastMouseX, mApp->mWidgetManager->mLastMouseY, aCursorSeedType);
+		int aGridX = PlantingPixelToGridX(pvzu::engine::MouseBoardX(this, mApp->mWidgetManager->mLastMouseX), pvzu::engine::MouseBoardY(this, mApp->mWidgetManager->mLastMouseY), aCursorSeedType); // PVZU: board coordinates
+		int aGridY = PlantingPixelToGridY(pvzu::engine::MouseBoardX(this, mApp->mWidgetManager->mLastMouseX), pvzu::engine::MouseBoardY(this, mApp->mWidgetManager->mLastMouseY), aCursorSeedType);
 
 		Plant* aPlant = GetTopPlantAt(aGridX, aGridY, PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
 		if (aPlant && aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL && CanPlantAt(aGridX, aGridY, SeedType::SEED_PUMPKINSHELL) == PlantingReason::PLANTING_OK)
@@ -3202,6 +3341,7 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
 
 	int aMouseX = mApp->mWidgetManager->mLastMouseX - mX;
 	int aMouseY = mApp->mWidgetManager->mLastMouseY - mY;
+	pvzu::engine::LocalToBoard(this, aMouseX, aMouseY); // PVZU: board zoom (only hit tests use these)
 
 	if (mApp->mGameScene == GameScenes::SCENE_LEVEL_INTRO)
 	{
@@ -3294,6 +3434,9 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
 		MouseHitTest(aMouseX, aMouseY, &aLocalHitResult);
 		theHitResult = &aLocalHitResult;
 	}
+
+	if (pvzu::engine::ModInfoToolTip(this, theHitResult, aMouseX, aMouseY)) // PVZU: Unnamed right-hold zombie / plant info (hook 57)
+		return;
 
 	switch (theHitResult->mObjectType)
 	{
@@ -3556,8 +3699,8 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
 		}
 	}
 
-	mToolTip->mX = (SEED_PACKET_WIDTH - mToolTip->mWidth) / 2 + mSeedBank->mX + aSeedPacket->mOffsetX + aSeedPacket->mX;
-	mToolTip->mY = mSeedBank->mY + aSeedPacket->mY + 70;
+	mToolTip->mX = (aSeedPacket->mWidth - mToolTip->mWidth) / 2 + mSeedBank->mX + aSeedPacket->mOffsetX + aSeedPacket->mX; // PVZU: packet's own size (panel)
+	mToolTip->mY = mSeedBank->mY + aSeedPacket->mY + aSeedPacket->mHeight;
 	mToolTip->mVisible = true;
 }
 
@@ -3608,6 +3751,13 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 		return;
 	}
 
+	if (pvzu::engine::ShooterCannonLoadClick(this, aGridX, aGridY)) // PVZU: Kernel-pult / Doom card loads a Loaded Cannon (0xc11870)
+		return;
+	if (mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_GLOVE && pvzu::engine::ModModeGlovePlant(this) == nullptr)
+	{
+		ClearCursor(); // PVZU: the gloved lawn plant was eaten (item modes); MovePlant would get nullptr
+		return;
+	}
 	PlantingReason aReason = CanPlantAt(aGridX, aGridY, aPlantingSeedType);
 	if (aReason != PlantingReason::PLANTING_OK)
 	{
@@ -3736,7 +3886,8 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 		}
 		else if (aReason == PlantingReason::PLANTING_NEEDS_SLEEPING)
 		{
-			DisplayAdvice("[ADVICE_PLANTING_NEED_SLEEPING]", MessageStyle::MESSAGE_STYLE_HINT_FAST, AdviceType::ADVICE_PLANTING_NEED_SLEEPING);
+			if (!pvzu::engine::ModHintPlantingRefused(this, aReason)) // PVZU: Magic Devourer / Strong Coffee Bean's own text (modAlmanac)
+				DisplayAdvice("[ADVICE_PLANTING_NEED_SLEEPING]", MessageStyle::MESSAGE_STYLE_HINT_FAST, AdviceType::ADVICE_PLANTING_NEED_SLEEPING);
 		}
 
 		if (mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_GLOVE || mApp->IsWhackAZombieLevel())
@@ -3773,13 +3924,14 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 
 	if (!mApp->mEasyPlantingCheat && mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_BANK && !HasConveyorBeltSeedBank())
 	{
-		if (!TakeSunMoney(GetCurrentPlantCost(aPlantingSeedType, SeedType::SEED_NONE)))
+		if (!TakeSunMoney(GetCurrentPlantCost(pvzu::engine::ModCostSeed(this, aPlantingSeedType) /* PVZU: the mod packet's cost */, SeedType::SEED_NONE)))
 		{
 			return;
 		}
 	}
 
 	// upgrades and wall-nut first aid replace the original plant
+	pvzu::engine::PlantDeathCauseScope aPvzuCause(pvzu::unnamed::PlantDeathCause::REPLACED); // PVZU: glove Pole leap (hook 361)
 	bool aIsAwake = false;
 	int aWakeUpCounter = 0;
 	PlantsOnLawn aPlantOnLawn;
@@ -3831,7 +3983,7 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 
 	if (mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_GLOVE)
 	{
-		mApp->mZenGarden->MovePlant(mPlants.DataArrayTryToGet(mCursorObject->mGlovePlantID), aGridX, aGridY);
+		mApp->mZenGarden->MovePlant(pvzu::engine::ModModeGlovePlant(this), aGridX, aGridY); // PVZU: live plant (checked above)
 	}
 	else if (mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_WHEEL_BARROW)
 	{
@@ -3839,14 +3991,21 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 	}
 	else if (mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_USABLE_COIN)
 	{
-		AddPlant(aGridX, aGridY, mCursorObject->mType, mCursorObject->mImitaterType);
+		SeedType aPvzuSeed = mCursorObject->mType, aPvzuImitater = mCursorObject->mImitaterType; // PVZU: hook 66
+		pvzu::engine::ModSproutToImitater(aPvzuSeed, aPvzuImitater, false);
+		AddPlant(aGridX, aGridY, aPvzuSeed, aPvzuImitater);
 		Coin* aCoin = mCoins.DataArrayTryToGet(mCursorObject->mCoinID);
 		mCursorObject->mCoinID = CoinID::COINID_NULL;
 		aCoin->Die();
 	}
 	else if (mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_BANK)
 	{
-		Plant* aPlant = AddPlant(aGridX, aGridY, mCursorObject->mType, mCursorObject->mImitaterType);
+		SeedType aPvzuSeed = mCursorObject->mType, aPvzuImitater = mCursorObject->mImitaterType; // PVZU: hook 67
+		pvzu::engine::ModSproutToImitater(aPvzuSeed, aPvzuImitater, true);
+		if (aPvzuSeed == mCursorObject->mType && aPvzuImitater == mCursorObject->mImitaterType) // PVZU: same exe rule; only if the general one did not apply
+			pvzu::engine::Level70BossBankPlant(this, aPvzuSeed, aPvzuImitater); // 7-10 Sprout card (0x7a071a)
+		Plant* aPlant = AddPlant(aGridX, aGridY, aPvzuSeed, aPvzuImitater);
+		aPlant->PvzuPlantedFromSeedBank(); // PVZU: Unnamed first-Adventure Peashooter (hook 68), no-op in vanilla
 		if (aIsAwake)
 		{
 			aPlant->SetSleeping(false);
@@ -3864,7 +4023,7 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 	}
 
 	// Column levels plant a whole column at once
-	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_COLUMN)
+	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_COLUMN || pvzu::engine::SpecialPlantsColumn(this, "plant")) // PVZU: 73 before the zombies come (hook 71)
 	{
 		for (int aRow = 0; aRow < MAX_GRID_SIZE_Y; aRow++)
 		{
@@ -3988,9 +4147,10 @@ void Board::MouseDownWithTool(int x, int y, int theClickCount, CursorType theCur
 		return;
 	}
 
-	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN)
+	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN || pvzu::engine::ModModeGloveMouseDown(this, x, y, theCursorType)) // PVZU: item modes (hook 73)
 	{
-		mApp->mZenGarden->MouseDownWithTool(x, y, theCursorType);
+		if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN)
+			mApp->mZenGarden->MouseDownWithTool(x, y, theCursorType);
 		return;
 	}
 	if (mApp->mGameMode == GameMode::GAMEMODE_TREE_OF_WISDOM)
@@ -4008,7 +4168,10 @@ void Board::MouseDownWithTool(int x, int y, int theClickCount, CursorType theCur
 	{
 		mApp->PlayFoley(FoleyType::FOLEY_USE_SHOVEL);
 		mPlantsShoveled++;
-		aPlant->Die();
+		{
+			pvzu::engine::PlantDeathCauseScope aPvzuCause(pvzu::unnamed::PlantDeathCause::SHOVEL); // PVZU: glove Pole leap (hook 361)
+			aPlant->Die();
+		}
 
 		if (aPlant->mSeedType == SeedType::SEED_CATTAIL && GetTopPlantAt(aPlant->mPlantCol, aPlant->mRow, PlantPriority::TOPPLANT_ONLY_PUMPKIN))
 		{
@@ -4126,14 +4289,16 @@ bool Board::MouseHitTest(int x, int y, HitResult* theHitResult)
 	}
 
 	Rect aShovelButtonRect = GetShovelButtonRect();
-	if (mSeedBank->MouseHitTest(x, y, theHitResult))
+	int aPvzuUiX = x, aPvzuUiY = y; // PVZU: x, y are board coordinates; the seed bank and shovel are not zoomed
+	pvzu::engine::BoardToLocal(this, aPvzuUiX, aPvzuUiY);
+	if (mSeedBank->MouseHitTest(aPvzuUiX, aPvzuUiY, theHitResult))
 	{
 		if (mCursorObject->mCursorType == CursorType::CURSOR_TYPE_NORMAL ||
 			mCursorObject->mCursorType == CursorType::CURSOR_TYPE_COBCANNON_TARGET ||
 			mCursorObject->mCursorType == CursorType::CURSOR_TYPE_HAMMER)
 			return true;
 	}
-	if (mShowShovel && aShovelButtonRect.Contains(x, y) && CanInteractWithBoardButtons())
+	if (mShowShovel && aShovelButtonRect.Contains(aPvzuUiX, aPvzuUiY) && CanInteractWithBoardButtons()) // PVZU
 	{
 		theHitResult->mObjectType = GameObjectType::OBJECT_TYPE_SHOVEL;
 		return true;
@@ -4266,6 +4431,8 @@ void Board::PickUpTool(GameObjectType theObjectType)
 		{
 			SetTutorialState(TutorialState::TUTORIAL_SHOVEL_DIG);
 		}
+		if (pvzu::engine::ModModeGlovePickUp(this)) // PVZU: mod modes 0x6b/0x87/0x8d/0x90, the glove (hooks 76, 77)
+			break;
 		mCursorObject->mCursorType = CursorType::CURSOR_TYPE_SHOVEL;
 		mApp->PlayFoley(FoleyType::FOLEY_SHOVEL);
 		break;
@@ -4362,17 +4529,28 @@ void Board::PickUpTool(GameObjectType theObjectType)
 
 void Board::MouseDown(int x, int y, int theClickCount)
 {
+	pvzu::engine::MobileNoteDown(this, x, y); // PVZU: mobile planting (tap-tap, drag, plant on lift)
 	UpdateMousePosition();
 	Widget::MouseDown(x, y, theClickCount);
 	mIgnoreMouseUp = !CanInteractWithBoardButtons();
 	if (mTimeStopCounter > 0)
 		return;
+	if (pvzu::engine::HudSpeedMouseDown(this, x, y, theClickCount)) // PVZU: the HUD's 1x/2x button
+		return;
+	if (pvzu::engine::MobileMouseDown(this, x, y, theClickCount)) // PVZU: handled by the touch rules
+	{
+		UpdateCursor();
+		return;
+	}
 
+	pvzu::engine::LocalToBoard(this, x, y); // PVZU: board zoom: from here on x, y are board coordinates (UI tests map back)
 	HitResult aHitResult;
 	MouseHitTest(x, y, &aHitResult);
 	if (mChallenge->MouseDown(x, y, theClickCount, &aHitResult))
 		return;
 
+	if (mMenuButton->IsMouseOver() && CanInteractWithBoardButtons() && pvzu::engine::OptionsMenuDown(mApp, this, theClickCount)) // PVZU: right click on Menu: Unnamed options (hook 80); a press starts the long-press count
+		return;
 	if (mMenuButton->IsMouseOver() && CanInteractWithBoardButtons() && theClickCount > 0)
 	{
 		mApp->PlaySample(Sexy::SOUND_GRAVEBUTTON);
@@ -4412,6 +4590,7 @@ void Board::MouseDown(int x, int y, int theClickCount)
 		}
 	}
 
+	pvzu::engine::SpecialTouchDown(this, x, y, aHitResult.mObjectType == GameObjectType::OBJECT_TYPE_NONE); // PVZU: 6-5 / 7-5 tap and swipe
 	CursorType aCursor = mCursorObject->mCursorType;
 	if (aHitResult.mObjectType == GameObjectType::OBJECT_TYPE_NONE)
 	{
@@ -4448,13 +4627,20 @@ void Board::MouseDown(int x, int y, int theClickCount)
 	}
 	else if (IsPlantInCursor())
 	{
+		pvzu::engine::ModesIZombieCarrierClick(this, aHitResult); // PVZU: I, Zombie Dancer/Bungee take the held card (hook 78)
 		MouseDownWithPlant(x, y, theClickCount);
+	}
+	else if (pvzu::engine::LawnHoldDown(this, &aHitResult, x, y, theClickCount)) // PVZU: touch hold on a plant: its tap waits for a quick lift
+	{
 	}
 	else
 	{
 		switch (aHitResult.mObjectType)
 		{
 		case GameObjectType::OBJECT_TYPE_SEEDPACKET:
+			if (pvzu::engine::ModesIZombiePacketClick(this, (SeedPacket*)aHitResult.mObject, theClickCount)) // PVZU: right click (hook 79)
+				break;
+			pvzu::engine::ModesIZombiePressDown(this, aHitResult); // PVZU: the phone's long press = that right click
 			if (!mPaused)
 			{
 				((SeedPacket*)aHitResult.mObject)->MouseDown(x, y, theClickCount);
@@ -4580,7 +4766,16 @@ bool Board::CanInteractWithBoardButtons()
 
 void Board::MouseUp(int x, int y, int theClickCount)
 {
+	pvzu::engine::MobileMouseUp(this, x, y); // PVZU: plant (or dig) where the finger lifts; a missed drag puts it back
+	pvzu::engine::LawnHoldUp(this, x, y); // PVZU: end of a touch hold on a plant / zombie; a quick tap runs the plant's tap
+	pvzu::engine::SpecialTouchUp(this, x, y); // PVZU: 6-5 / 7-5 tap and swipe
+	pvzu::engine::ModesIZombiePressUp(this, x, y); // PVZU: I, Zombie long press on Football/Dancer/Bungee = right click
 	Widget::MouseUp(x, y, theClickCount);
+	if (pvzu::engine::OptionsMenuUp()) // PVZU: the release of a long press on Menu (it opened the Unnamed options)
+	{
+		mIgnoreMouseUp = false;
+		return;
+	}
 	if (mIgnoreMouseUp)
 	{
 		mIgnoreMouseUp = false;
@@ -4728,6 +4923,11 @@ void Board::SpawnZombiesFromPool()
 		aCount = 3;
 		aZombiePoints = 7;
 	}
+	if (pvzu::GameData::Get().Feature("poolLevels")) // PVZU: Unnamed per-level pool spawn table (exe 0x4128F0)
+	{
+		pvzu::engine::PoolSpawnCounts(this, aCount, aZombiePoints);
+	}
+	pvzu::engine::PoolSpawnLog(this, aCount, aZombiePoints); // PVZU: -pvzu-log-waves dev log (no game effect)
 
 	int aGridArrayCount = 0;
 	PvzpWeightedGridArray aGridArray[MAX_POOL_GRID_SIZE];
@@ -4755,8 +4955,13 @@ void Board::SpawnZombiesFromPool()
 		{
 			return;
 		}
+		if (pvzu::GameData::Get().Feature("poolLevels")) // PVZU: hypnotised Dancer's carnival raises hypnotised pool zombies (hook 81)
+		{
+			pvzu::engine::PoolRiserBeforeRise(aZombie);
+		}
 
 		aZombie->RiseFromGrave(aGrid->mX, aGrid->mY);
+		pvzu::engine::PoolRisen(aZombie); // PVZU: -pvzu-log-waves dev log (no game effect)
 		aZombiePoints -= GetZombieDefinition(aZombieType).mZombieValue;
 		aZombiePoints = std::max(aZombiePoints, 1);
 	}
@@ -4813,6 +5018,12 @@ void Board::SpawnZombiesFromSky()
 		aZombiePoints = 7;
 	}
 
+	if (pvzu::GameData::Get().Feature("roofLevels")) // PVZU: Unnamed per-level sky drop table (exe 0x412C30)
+	{
+		pvzu::engine::RoofSkyDropCounts(this, aCount, aZombiePoints);
+	}
+	pvzu::engine::RoofSkyDropLog(this, aCount, aZombiePoints); // PVZU: -pvzu-log-waves dev log (no game effect)
+
 	BungeeDropGrid aBungeeDropGrid;
 	SetupBungeeDrop(&aBungeeDropGrid);
 	aCount = std::min(aCount, aBungeeDropGrid.mGridArrayCount);
@@ -4820,10 +5031,12 @@ void Board::SpawnZombiesFromSky()
 	if (aBungeeDropGrid.mGridArrayCount == 0 || aCount <= 0)
 		return;
 
+	pvzu::engine::SkyDropScope aPvzuSkyDrop; // PVZU: zombies made here are "sky-dropped" (Unnamed Pole roll Rand(19)+3)
 	for (int i = 0; i < aCount; i++)
 	{
-		ZombieType aZombieType = PickGraveRisingZombieType();
+		ZombieType aZombieType = pvzu::engine::SkyDropZombieType(this); // PVZU: Unnamed picks 1 of 13 types (hook 85); vanilla PickGraveRisingZombieType()
 		BungeeDropZombie(&aBungeeDropGrid, aZombieType);
+		pvzu::engine::RoofSkyDropped(this, aZombieType); // PVZU: -pvzu-log-waves dev log (no game effect)
 		aZombiePoints -= GetZombieDefinition(aZombieType).mZombieValue;
 		aZombiePoints = std::max(aZombiePoints, 1);
 	}
@@ -4834,14 +5047,20 @@ void Board::SpawnZombiesFromGraves()
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_WAR_AND_PEAS || mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_WAR_AND_PEAS_2)
 		return;
 
-	if (StageHasRoof())
+	if (pvzu::engine::GraveRiseGravesOnly()) // PVZU: gold Football death goes straight to the grave loop (0xC05587)
+	{
+	}
+	else if (StageHasRoof())
 	{
 		SpawnZombiesFromSky();
 	}
 	else if (StageHasPool())
 	{
 		SpawnZombiesFromPool();
-		return;
+		if (!(pvzu::GameData::Get().Feature("poolLevels") && pvzu::engine::PoolGravesAfterPool())) // PVZU: Unnamed goes on to the grave loop (hook 86, 0x9588D9)
+		{
+			return;
+		}
 	}
 
 //	int aZombiePoints = GetGraveStonesCount();
@@ -4859,6 +5078,13 @@ void Board::SpawnZombiesFromGraves()
 		}
 
 		ZombieType aZombieType = PickGraveRisingZombieType();
+		if (pvzu::engine::GraveRiseForcedType(aZombieType)) // PVZU: every grave a Football (gold Football death, 0xC0358D)
+		{
+		}
+		else if (pvzu::GameData::Get().Feature("dayLevels")) // PVZU: grave zombie type re-roll (hook 88)
+		{
+			aZombieType = pvzu::engine::UnnamedGraveRiseType(this, aZombieType);
+		}
 		Zombie* aZombie = AddZombie(aZombieType, mCurrentWave);
 		if (aZombie == nullptr)
 		{
@@ -4866,6 +5092,7 @@ void Board::SpawnZombiesFromGraves()
 		}
 
 		aZombie->RiseFromGrave(aGridItem->mGridX, aGridItem->mGridY);
+		pvzu::engine::GraveRiseRisen(aZombie); // PVZU: Death Carnival of a hypnotised Dancer raises hypnotised zombies
 		/*
 		aZombiePoints -= GetZombieDefinition(aZombieType).mZombieValue;
 		if (aZombieType < 1)
@@ -4894,8 +5121,12 @@ int Board::TotalZombiesHealthInWave(int theWaveIndex)
 
 void Board::SpawnZombieWave()
 {
+	pvzu::engine::SpecialLevelWave(this); // PVZU: 7-10 boss trigger etc. (Plan 7 Task 3; no-op now)
 	mChallenge->SpawnZombieWave();
-	if (mApp->IsBungeeBlitzLevel())
+	if (pvzu::engine::ModModeOwnWave(this)) // PVZU: mod mode 0x92 Dance King waves (hook 90)
+	{
+	}
+	else if (mApp->IsBungeeBlitzLevel() || pvzu::engine::ModModeBungeeWaves(this)) // PVZU: mod mode 0x70 (hook 89)
 	{
 		BungeeDropGrid aBungeeDropGrid;
 		SetupBungeeDrop(&aBungeeDropGrid);
@@ -4933,7 +5164,7 @@ void Board::SpawnZombieWave()
 			}
 			else
 			{
-				AddZombie(aZombieType, mCurrentWave);
+				pvzu::engine::World7FlagWave(this, AddZombie(aZombieType, mCurrentWave)); // PVZU: world 7, a Flag fills every row (hook 91)
 			}
 		}
 	}
@@ -5176,6 +5407,8 @@ bool Board::HasLevelAwardDropped()
 
 void Board::UpdateSunSpawning()
 {
+	if (pvzu::engine::ModModeNoSkySun(this)) // PVZU: mod modes 0x72/0x74 (hook 94)
+		return;
 	if (StageIsNight() ||
 		HasLevelAwardDropped() ||
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_RAINING_SEEDS ||
@@ -5208,6 +5441,8 @@ void Board::UpdateSunSpawning()
 	mNumSunsFallen++;
 	mSunCountDown = std::min(SUN_COUNTDOWN_MAX, SUN_COUNTDOWN + mNumSunsFallen * 10) + Rand(SUN_COUNTDOWN_RANGE);
 	CoinType aSunType = mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_SUNNY_DAY ? CoinType::COIN_LARGESUN : CoinType::COIN_SUN;
+	if (pvzu::engine::ModModeSkySun(this, mSunCountDown)) // PVZU: mod mode 0x66 halved timer, large suns (hook 95)
+		aSunType = CoinType::COIN_LARGESUN;
 	AddCoin(RandRangeInt(100, 649), 60, aSunType, CoinMotion::COIN_MOTION_FROM_SKY);
 }
 
@@ -5215,7 +5450,10 @@ void Board::NextWaveComing()
 {
 	if (mCurrentWave + 1 == mNumWaves)
 	{
-		if (!IsSurvivalStageWithRepick() && mApp->mGameMode != GameMode::GAMEMODE_CHALLENGE_LAST_STAND && !mApp->IsContinuousChallenge())
+		if (pvzu::engine::ModModeFinalWaveLost(this)) // PVZU: mod modes 0x7f/0x90 fewer than 15 tricks (hook 96)
+		{
+		}
+		else if (!IsSurvivalStageWithRepick() && mApp->mGameMode != GameMode::GAMEMODE_CHALLENGE_LAST_STAND && !mApp->IsContinuousChallenge())
 		{
 			mApp->AddReanimation(0, 30, MakeRenderOrder(RenderLayer::RENDER_LAYER_ABOVE_UI, 0, 0), ReanimationType::REANIM_FINAL_WAVE);
 			mFinalWaveSoundCounter = 60;
@@ -5350,6 +5588,7 @@ void Board::UpdateZombieSpawning()
 	if (mZombieCountDown == 0)
 	{
 		SpawnZombieWave();
+		pvzu::engine::ModModeWaveSpawned(this); // PVZU: mod mode 0x68 day/night flip (0x7995a6)
 		mZombieHealthWaveStart = TotalZombiesHealthInWave(mCurrentWave - 1);
 
 		if (mCurrentWave == mNumWaves && mApp->IsSurvivalMode())
@@ -5418,6 +5657,8 @@ void Board::UpdateIce()
 
 void Board::UpdateProgressMeter()
 {
+	if (pvzu::engine::Level70BossProgressMeter(this)) // PVZU: 7-10 shows the boss's lost HP, 0 before it comes (hook 101)
+		return;
 	if (mApp->IsFinalBossLevel())
 	{
 		Zombie* aBoss = GetBossZombie();
@@ -5486,7 +5727,9 @@ void Board::UpdateTutorial()
 	if (mTutorialState == TutorialState::TUTORIAL_LEVEL_1_PICK_UP_PEASHOOTER && mTutorialTimer == 0)
 	{
 		DisplayAdvice("[ADVICE_CLICK_PEASHOOTER]", MessageStyle::MESSAGE_STYLE_TUTORIAL_LEVEL1_STAY, AdviceType::ADVICE_NONE);
-		TutorialArrowShow(mSeedBank->mX + mSeedBank->mSeedPackets[0].mX, mSeedBank->mY + mSeedBank->mSeedPackets[0].mY);
+		int aArrowX, aArrowY;
+		pvzu::engine::SeedPacketArrowOrigin(this, 0, aArrowX, aArrowY); // PVZU: centred under a panel card
+		TutorialArrowShow(aArrowX, aArrowY);
 		mTutorialTimer = -1;
 	}
 	else if (mTutorialState == TutorialState::TUTORIAL_LEVEL_2_PICK_UP_SUNFLOWER ||
@@ -5532,8 +5775,8 @@ void Board::SetTutorialState(TutorialState theTutorialState)
 	case TutorialState::TUTORIAL_LEVEL_1_PICK_UP_PEASHOOTER:
 		if (mPlants.mSize == 0)
 		{
-			float aPosX = mSeedBank->mX + mSeedBank->mSeedPackets[0].mX;
-			float aPosY = mSeedBank->mY + mSeedBank->mSeedPackets[0].mY;
+			int aPosX, aPosY;
+			pvzu::engine::SeedPacketArrowOrigin(this, 0, aPosX, aPosY); // PVZU: centred under a panel card
 			TutorialArrowShow(aPosX, aPosY);
 			DisplayAdvice("[ADVICE_CLICK_SEED_PACKET]", MessageStyle::MESSAGE_STYLE_TUTORIAL_LEVEL1_STAY, AdviceType::ADVICE_NONE);
 		}
@@ -5570,8 +5813,12 @@ void Board::SetTutorialState(TutorialState theTutorialState)
 
 	case TutorialState::TUTORIAL_LEVEL_2_PICK_UP_SUNFLOWER:
 	case TutorialState::TUTORIAL_MORESUN_PICK_UP_SUNFLOWER:
-		TutorialArrowShow(mSeedBank->mX + mSeedBank->mSeedPackets[1].mX, mSeedBank->mY + mSeedBank->mSeedPackets[1].mY);
+	{
+		int aPosX, aPosY;
+		pvzu::engine::SeedPacketArrowOrigin(this, 1, aPosX, aPosY); // PVZU: centred under a panel card
+		TutorialArrowShow(aPosX, aPosY);
 		break;
+	}
 
 	case TutorialState::TUTORIAL_LEVEL_2_PLANT_SUNFLOWER:
 	case TutorialState::TUTORIAL_LEVEL_2_REFRESH_SUNFLOWER:
@@ -5692,6 +5939,19 @@ void Board::UpdateGame()
 
 void Board::Update()
 {
+	// PVZU: the HUD's speed button (2x) runs the board twice per frame; menus and dialogs keep their pace. The second
+	// run only happens while this board is still the app's board, playing and not paused (a run can end the level).
+	pvzu::engine::UpdateBoardZoom(this); // PVZU: board zoom eases in at rest during play (once per frame, any speed)
+	pvzu::engine::LawnHoldUpdate(this); // PVZU: touch hold-for-stats panel on a plant or zombie (Mod/Engine/LawnHoldInfo.h)
+	PvzuUpdateOnce();
+	for (int i = 1; i < pvzu::engine::BoardUpdatesPerFrame(this); i++)
+	{
+		PvzuUpdateOnce();
+	}
+}
+
+void Board::PvzuUpdateOnce()
+{
 	PvzpHesitationBracket aHesitation("Board::Update");
 
 	Widget::Update();
@@ -5699,6 +5959,8 @@ void Board::Update()
 
 	mBoardUpdateCounter++;
 	mCutScene->Update();
+	pvzu::engine::ApplySeedBankLayout(this); // PVZU: seed panel on the left (or the top bank at the left edge)
+	pvzu::engine::UpdateStreetFog(this); // PVZU: decorative haze over the street strip
 	UpdateMousePosition();
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN)
 	{
@@ -5723,6 +5985,7 @@ void Board::Update()
 		mMenuButton->mDisabled = aDisabled;
 	}
 	mMenuButton->Update();
+	pvzu::engine::OptionsMenuPoll(mApp, this, mMenuButton->IsMouseOver()); // PVZU: long press on Menu -> Unnamed options
 	if (mStoreButton)
 	{
 		mStoreButton->mDisabled = aDisabled;
@@ -5730,6 +5993,12 @@ void Board::Update()
 	}
 
 	mApp->mEffectSystem->Update();
+	pvzu::engine::DevBoardTick(this); // PVZU: dev harness (-pvzu-level/-pvzu-plant-test/-pvzu-quit-after); no-op without them
+	pvzu::engine::TestCheatsBoardTick(this); // PVZU Plan 9 C1: infinite sun, no recharge, invincible plants
+	if (mApp->mGameScene == GameScenes::SCENE_PLAYING)
+		pvzu::engine::SpecialLevelUpdate(this); // PVZU: special levels (Plan 7 Task 3; no-op now)
+	if (mApp->mGameScene == GameScenes::SCENE_PLAYING)
+		pvzu::engine::ModModeUpdate(this); // PVZU: mod modes 0x65..0x94
 	mAdvice->Update();
 	UpdateTutorial();
 
@@ -5746,7 +6015,7 @@ void Board::Update()
 		mShakeCounter--;
 		if (mShakeCounter == 0)
 		{
-			mX = 0;
+			mX = pvzu::engine::Camera(this).rest; // PVZU: back to the rest position (vanilla 0)
 			mY = 0;
 		}
 		else
@@ -5755,7 +6024,9 @@ void Board::Update()
 			{
 				mShakeAmountX = -mShakeAmountX;
 			}
-			mX = PvzpAnimateCurve(12, 0, mShakeCounter, 0, mShakeAmountX, PvzpCurves::CURVE_BOUNCE);
+			// PVZU: shake around the rest position, never past the background's edges
+			const pvzu::BoardCamera aCamera = pvzu::engine::Camera(this);
+			mX = std::clamp(aCamera.rest + PvzpAnimateCurve(12, 0, mShakeCounter, 0, mShakeAmountX, PvzpCurves::CURVE_BOUNCE), aCamera.street, aCamera.house);
 			mY = PvzpAnimateCurve(12, 0, mShakeCounter, 0, mShakeAmountY, PvzpCurves::CURVE_BOUNCE);
 		}
 	}
@@ -5917,6 +6188,7 @@ void Board::DrawBackdrop(Graphics* g)
 		aClipG.SetColorizeImages(false);
 	}
 	mChallenge->DrawBackdrop(g);
+	pvzu::engine::DrawPlantingCrosshair(g, this); // PVZU: row + column wash under the finger (touch)
 	if (mApp->mGameScene == GameScenes::SCENE_LEVEL_INTRO && StageHasGraveStones())
 	{
 		g->DrawImage(Sexy::IMAGE_NIGHT_GRAVE_GRAPHIC, 1092, 40);
@@ -6073,7 +6345,9 @@ static inline void AddUIRenderItem(RenderItem* theRenderList, int& theCurRenderI
 
 void Board::DrawGameObjects(Graphics* g)
 {
-	RenderItem aRenderList[MAX_RENDER_ITEMS];
+	// PVZU Plan 9 C2: the list is too big for the stack now (Mod/Capacity.h kRenderItemCapacity); drawing is single-threaded
+	static const std::unique_ptr<RenderItem[]> sRenderList = std::make_unique<RenderItem[]>(MAX_RENDER_ITEMS);
+	RenderItem* aRenderList = sRenderList.get();
 	int aRenderItemCount = 0;
 
 	{
@@ -6243,6 +6517,8 @@ void Board::DrawGameObjects(Graphics* g)
 		else if (mApp->mGameScene == GameScenes::SCENE_PLAYING || mApp->mGameScene == GameScenes::SCENE_ZOMBIES_WON)
 		{
 			aZPos = MakeRenderOrder(RenderLayer::RENDER_LAYER_UI_BOTTOM, 0, 1);
+			if (pvzu::engine::FullFogHudOnTop(this)) // PVZU R8: full fog must not cover the top bar / seed bank
+				aZPos = MakeRenderOrder(RenderLayer::RENDER_LAYER_FOG, 0, 2);
 		}
 		else if (mCutScene->IsAfterSeedChooser() || mCutScene->IsInShovelTutorial() || mHelpIndex == AdviceType::ADVICE_CLICK_TO_CONTINUE)
 		{
@@ -6276,7 +6552,7 @@ void Board::DrawGameObjects(Graphics* g)
 	{
 		AddUIRenderItem(aRenderList, aRenderItemCount, RenderObjectType::RENDER_ITEM_FOG, MakeRenderOrder(RenderLayer::RENDER_LAYER_FOG, 0, 0));
 	}
-	if (mApp->IsStormyNightLevel() || mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_RAINING_SEEDS)
+	if (mApp->IsStormyNightLevel() || mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_RAINING_SEEDS || pvzu::engine::ModModeRains(mApp) || pvzu::engine::RainOption() != 0) // PVZU: 0x74, rain option (hook 117)
 	{
 		AddUIRenderItem(aRenderList, aRenderItemCount, RenderObjectType::RENDER_ITEM_STORM, MakeRenderOrder(RenderLayer::RENDER_LAYER_FOG, 0, 3));
 	}
@@ -6287,6 +6563,9 @@ void Board::DrawGameObjects(Graphics* g)
 	for (int i = 0; i < aRenderItemCount; i++)
 	{
 		RenderItem& aRenderItem = aRenderList[i];
+		if (pvzu::engine::ModModeHidesRenderItem(this, aRenderItem.mRenderObjectType)) // PVZU: mod mode 0x7b (hooks 118, 122, 124)
+			continue;
+		pvzu::engine::BoardZoomScope aPvzuZoom(this, pvzu::engine::ZoomRenderItem(this, aRenderItem)); // PVZU: zoomed scene, plain HUD
 		switch (aRenderItem.mRenderObjectType)
 		{
 		case RenderObjectType::RENDER_ITEM_PLANT:
@@ -6295,6 +6574,7 @@ void Board::DrawGameObjects(Graphics* g)
 			if (aPlant->BeginDraw(g))
 			{
 				aPlant->Draw(g);
+				pvzu::engine::ModPlantDrawOver(aPlant, g); // PVZU: Element-shroom icons + digit, Peashooter layers (0x7a8e21, 0xc05e7c)
 				aPlant->EndDraw(g);
 			}
 			break;
@@ -6335,6 +6615,7 @@ void Board::DrawGameObjects(Graphics* g)
 			if (aZombie->BeginDraw(g))
 			{
 				aZombie->Draw(g);
+				pvzu::engine::ModZombieDrawOver(aZombie, g); // PVZU: Sniper target mark (0xc10fd0)
 				aZombie->EndDraw(g);
 			}
 			break;
@@ -6345,6 +6626,12 @@ void Board::DrawGameObjects(Graphics* g)
 			Zombie* aZombie = aRenderItem.mZombie;
 			if (aZombie->BeginDraw(g))
 			{
+				aZombie->DrawShadow(g);
+				aZombie->EndDraw(g);
+			}
+			else if (pvzu::engine::FogDrawsHiddenShadow(aZombie)) // PVZU: an invisible garlic Pogo keeps its shadow (hook 501)
+			{
+				g->Translate(aZombie->mX, aZombie->mY);
 				aZombie->DrawShadow(g);
 				aZombie->EndDraw(g);
 			}
@@ -6374,7 +6661,13 @@ void Board::DrawGameObjects(Graphics* g)
 			Coin* aCoin = aRenderItem.mCoin;
 			if (aCoin->BeginDraw(g))
 			{
+				float aShiftX = 0.0f, aShiftY = 0.0f; // PVZU: collected coins head for the moved counters (through the zoom)
+				pvzu::engine::CoinDrawOffset(aCoin, aShiftX, aShiftY);
+				g->mTransX += aShiftX;
+				g->mTransY += aShiftY;
 				aCoin->Draw(g);
+				g->mTransX -= aShiftX;
+				g->mTransY -= aShiftY;
 				aCoin->EndDraw(g);
 			}
 			break;
@@ -6446,7 +6739,10 @@ void Board::DrawGameObjects(Graphics* g)
 		}
 
 		case RenderObjectType::RENDER_ITEM_COIN_BANK:
-			DrawUICoinBank(g);
+			if (!pvzu::engine::CoinBankOverHaze(this)) // PVZU: else drawn in DrawUITop, above the street haze
+			{
+				DrawUICoinBank(g);
+			}
 			break;
 
 		case RenderObjectType::RENDER_ITEM_BACKDROP:
@@ -6674,7 +6970,10 @@ void Board::DrawLevel(Graphics* g)
 	{
 		aPosY += PvzpAnimateCurve(50, 0, mChallenge->mChallengeStateCounter, 0, 50, PvzpCurves::CURVE_EASE_IN_OUT);
 	}
-	PvzpDrawString(g, aLevelStr, aPosX, aPosY, Sexy::FONT_HOUSEOFTERROR16, Color(224, 187, 98), DrawStringJustification::DS_ALIGN_RIGHT);
+	mPvzuLevelLabelWidth = Sexy::FONT_HOUSEOFTERROR16->StringWidth(PvzpStringTranslate(aLevelStr)); // PVZU: the HUD's coin bank sits left of it
+	Color aPvzuLevelColor(224, 187, 98);
+	pvzu::engine::ModModeLevelNameColor(this, aPvzuLevelColor); // PVZU: mod modes (hook 130)
+	PvzpDrawString(g, aLevelStr, aPosX, aPosY, Sexy::FONT_HOUSEOFTERROR16, aPvzuLevelColor, DrawStringJustification::DS_ALIGN_RIGHT);
 }
 
 void Board::DrawZenWheelBarrowButton(Graphics* g, int theOffsetY)
@@ -6856,19 +7155,23 @@ void Board::DrawShovel(Graphics* g)
 {
 	if (mApp->mGameMode != GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN && mApp->mGameMode != GameMode::GAMEMODE_TREE_OF_WISDOM)
 	{
-		if (mShowShovel)
+		if (mShowShovel && pvzu::engine::DrawHudShovel(g, this, !pvzu::engine::ModModeHoldsShovel(this))) // PVZU: + the glove (hook 133)
+		{
+			// PVZU: drawn in the HUD's top bar
+		}
+		else if (mShowShovel)
 		{
 			Rect aShovelRect = GetShovelButtonRect();
 			g->DrawImage(Sexy::IMAGE_SHOVELBANK, aShovelRect.mX, aShovelRect.mY);
 
-			if (mCursorObject->mCursorType != CursorType::CURSOR_TYPE_SHOVEL)
+			if (!pvzu::engine::ModModeHoldsShovel(this)) // PVZU: the glove (hook 133)
 			{
 				if (mChallenge->mChallengeState == (ChallengeState)15)
 				{
 					g->SetColorizeImages(true);
 					g->SetColor(GetFlashingColor(mMainCounter, 75));
 				}
-				g->DrawImage(Sexy::IMAGE_SHOVEL, aShovelRect.mX - 7, aShovelRect.mY - 3);
+				g->DrawImage(pvzu::engine::ModModeShovelImage(this, Sexy::IMAGE_SHOVEL), aShovelRect.mX - 7, aShovelRect.mY - 3); // PVZU: the glove (hook 132)
 				g->SetColorizeImages(false);
 			}
 		}
@@ -7105,7 +7408,7 @@ void Board::DrawFadeOut(Graphics* g)
 	{
 		g->SetColor(Color(255, 255, 255, anAlpha));
 	}
-	g->FillRect(0, 0, mWidth, mHeight);
+	g->FillRect(pvzu::engine::UiX(this, 0, pvzu::Anchor::Left), 0, pvzu::engine::ScreenWidth(), mHeight); // PVZU: whole screen
 }
 
 void Board::DrawTopRightUI(Graphics* g)
@@ -7188,7 +7491,9 @@ void Board::DrawUIBottom(Graphics* g)
 	}
 
 	DrawShovel(g);
-	if (!StageHasFog())
+	pvzu::engine::DrawHudSpeedButton(g, this); // PVZU: 1x/2x button in the HUD's top bar
+	pvzu::engine::DrawSelectionBrackets(g, this); // PVZU: corner brackets around the held packet or shovel (touch)
+	if (!StageHasFog() && !pvzu::engine::HasStreetFog(this)) // PVZU: with the street haze it is drawn on top (as in fog levels)
 	{
 		DrawTopRightUI(g);
 	}
@@ -7202,7 +7507,7 @@ void Board::DrawUICoinBank(Graphics* g)
 	if (mCoinBankFadeCount <= 0)
 		return;
 
-	int aPosX = 57;
+	int aPosX = pvzu::engine::CoinBankX(this); // PVZU: HUD: bottom-right, left of "Level x-y" (else bottom-left of the lawn view)
 	int aPosY = 599 - Sexy::IMAGE_COINBANK->GetHeight();
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN || mApp->mCrazyDaveState != CrazyDaveState::CRAZY_DAVE_OFF)
 	{
@@ -7298,6 +7603,8 @@ void Board::UpdateFog()
 			mGridCelFog[x][y] = std::min(mGridCelFog[x][y] + aFogFadeInSpeed, aFogMax);
 		}
 	}
+	if (pvzu::engine::ModModeFogLight(this)) // PVZU: mod mode 0x7c, only sun clears fog (hook 135)
+		return;
 
 	for (Plant* aPlant : mPlants)
 	{
@@ -7306,9 +7613,9 @@ void Board::UpdateFog()
 		if (aPlant->NotOnGround())
 			continue;
 
-		if (aPlant->mSeedType == SeedType::SEED_PLANTERN)
+		if (aPlant->mSeedType == SeedType::SEED_PLANTERN && aPlant->mPvzu.modSeed == 0) // PVZU: a Moonflower clears no fog (0x19 only)
 		{
-			ClearFogAroundPlant(aPlant, 4);
+			ClearFogAroundPlant(aPlant, pvzu::unnamed::PlanternFogRadius()); // PVZU: Unnamed 20 = whole lawn (patch 0x41a702); vanilla 4
 		}
 		else if (aPlant->mSeedType == SeedType::SEED_TORCHWOOD)
 		{
@@ -7359,6 +7666,12 @@ void Board::DrawFog(Graphics* g)
 			if (x == MAX_GRID_SIZE_X - 1)
 			{
 				g->DrawImageCel(aImageFog, aPosX + 80, aPosY, aCelCol, 0);
+				// PVZU: the wider screen shows more street; keep it as foggy as the last column
+				const int aVisibleRight = pvzu::engine::UiX(this, BOARD_WIDTH, pvzu::Anchor::Right);
+				for (float aExtraX = aPosX + 160; aExtraX < aVisibleRight; aExtraX += 80)
+				{
+					g->DrawImageCel(aImageFog, aExtraX, aPosY, aCelCol, 0);
+				}
 			}
 		}
 	}
@@ -7372,7 +7685,15 @@ bool Board::IsScaryPotterDaveTalking()
 
 void Board::DrawUITop(Graphics* g)
 {
-	if (StageHasFog())
+	{
+		pvzu::engine::BoardZoomScope aPvzuZoom(this); // PVZU: the haze is part of the zoomed scene
+		pvzu::engine::DrawStreetFog(g, this); // PVZU: zombies come out of a haze on the street strip
+	}
+	if (pvzu::engine::CoinBankOverHaze(this)) // PVZU: the HUD's coin bank (bottom-right) sits over the haze
+	{
+		DrawUICoinBank(g);
+	}
+	if (StageHasFog() || pvzu::engine::HasStreetFog(this)) // PVZU: menu button above the haze
 	{
 		DrawTopRightUI(g);
 	}
@@ -7380,13 +7701,16 @@ void Board::DrawUITop(Graphics* g)
 	if (mTimeStopCounter > 0)
 	{
 		g->SetColor(Color(200, 200, 200, 210));
-		g->FillRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
+		g->FillRect(pvzu::engine::UiX(this, 0, pvzu::Anchor::Left), 0, pvzu::engine::ScreenWidth(), BOARD_HEIGHT); // PVZU: whole screen
 	}
 
 	if (mApp->mGameScene == GameScenes::SCENE_PLAYING || mApp->mGameMode == GameMode::GAMEMODE_TREE_OF_WISDOM)
 	{
+		const int aRightShift = pvzu::engine::UiX(this, 0, pvzu::Anchor::Right); // PVZU: bottom-right UI keeps the right edge
+		g->mTransX += aRightShift;
 		DrawProgressMeter(g);
 		DrawLevel(g);
+		g->mTransX -= aRightShift;
 	}
 	if (mStoreButton && mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_LAST_STAND)
 	{
@@ -7396,7 +7720,7 @@ void Board::DrawUITop(Graphics* g)
 	if ((mApp->mGameMode == GameMode::GAMEMODE_UPSELL || mApp->mGameMode == GameMode::GAMEMODE_INTRO) && mCutScene->mUpsellHideBoard)
 	{
 		g->SetColor(Color(0, 0, 0));
-		g->FillRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
+		g->FillRect(pvzu::engine::UiX(this, 0, pvzu::Anchor::Left), 0, pvzu::engine::ScreenWidth(), BOARD_HEIGHT); // PVZU: whole screen
 	}
 
 	if (mApp->mGameMode == GameMode::GAMEMODE_UPSELL)
@@ -7414,7 +7738,7 @@ void Board::DrawUITop(Graphics* g)
 		IsScaryPotterDaveTalking())
 	{
 		Graphics aScreenSpace(*g);
-		aScreenSpace.mTransX -= mX;
+		aScreenSpace.mTransX -= mX - pvzu::CrazyDaveScreenX(pvzu::engine::IsWideBoard(this), pvzu::CurrentLayout()); // PVZU: in the centred 800 screen of an 800-wide board
 		aScreenSpace.mTransY -= mY;
 		mApp->DrawCrazyDave(&aScreenSpace);
 	}
@@ -7424,19 +7748,25 @@ void Board::DrawUITop(Graphics* g)
 		mAdvice->Draw(g);
 	}
 
-	if (mTimeStopCounter == 0 && mCursorObject->BeginDraw(g))
+	int aPvzuLiftY = 0; // PVZU: touch: held plant only while the finger is down off the lawn, lifted above it
+	if (mTimeStopCounter == 0 && pvzu::engine::HeldImageShown(this, aPvzuLiftY) && mCursorObject->BeginDraw(g))
 	{
+		pvzu::engine::BoardZoomScope aPvzuZoom(this); // PVZU: the held plant at the finger, at the lawn's size
+		g->mTransY += aPvzuLiftY;
 		mCursorObject->Draw(g);
+		g->mTransY -= aPvzuLiftY;
 		mCursorObject->EndDraw(g);
 	}
 
 	mToolTip->Draw(g);
+	pvzu::engine::DrawLawnHoldInfo(this, g); // PVZU: the touch hold-for-stats panel, above the finger
 	DrawDebugText(g);
 	DrawDebugObjectRects(g);
 }
 
 void Board::Draw(Graphics* g)
 {
+	pvzu::engine::ModModeVisualWhite(this); // PVZU: 0x69's faint white only while in play (pause / dialogs / lost: plain)
 	if (mApp->GetDialog(Dialogs::DIALOG_STORE) || mApp->GetDialog(Dialogs::DIALOG_ALMANAC))
 		return;
 
@@ -7465,6 +7795,7 @@ void Board::Draw(Graphics* g)
 
 	mDrawCount++;
 	DrawGameObjects(g);
+	pvzu::engine::ModModeDraw(this, g); // PVZU: mod modes 0x65..0x94 (screen tint, messages)
 }
 
 void Board::SetMustacheMode(bool theEnableMustache)
@@ -7627,6 +7958,10 @@ void Board::DoTypingCheck(KeyCode theKey)
 
 void Board::KeyDown(KeyCode theKey)
 {
+	if (pvzu::engine::SpecialLevelKeyDown(this, theKey)) // PVZU: 6-5 arrows, 7-5 W/A/S/D (Plan 7 Task 3; no-op now)
+		return;
+	if (pvzu::engine::ModModeKeyDown(this, theKey)) // PVZU: mod modes 0x65..0x94
+		return;
 	DoTypingCheck(theKey);
 
 	if (mApp->mGameScene == GameScenes::SCENE_LEVEL_INTRO &&
@@ -8556,18 +8891,23 @@ bool Board::HasConveyorBeltSeedBank()
 		mApp->IsBungeeBlitzLevel() ||
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_PORTAL_COMBAT ||
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_COLUMN ||
-		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_INVISIGHOUL;
+		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_INVISIGHOUL ||
+		pvzu::engine::ModModeConveyor(this); // PVZU: mod modes 0x71/0x81/0x84 (hook 140)
 }
 
 int Board::GetNumSeedsInBank()
 {
+	if (int aPvzuSlots = 0; pvzu::engine::ModModeSeedSlots(this, aPvzuSlots)) // PVZU: mod modes 0x72 / 0x89 ... (hook 142)
+	{
+		return aPvzuSlots;
+	}
 	if (mApp->IsScaryPotterLevel())
 	{
 		return 1;
 	}
 	if (mApp->IsWhackAZombieLevel())
 	{
-		return 3;
+		return pvzu::engine::ModesWhackSlots(this, 3); // PVZU: V2 10 in the Unnamed mini-game (0x41bf32)
 	}
 	if (mApp->IsChallengeWithoutSeedBank())
 	{
@@ -8616,9 +8956,9 @@ int Board::GetNumSeedsInBank()
 		return 9;
 	}
 
-	int aNumSeeds = mApp->mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_PACKET_UPGRADE] + 6;
+	int aNumSeeds = pvzu::engine::TestCheatSeedSlots(mApp->mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_PACKET_UPGRADE] + 6); // PVZU Plan 9 C1: test cheat slots
 	int aSeedsAvailable = mApp->GetSeedsAvailable();
-	return std::min(aNumSeeds, aSeedsAvailable);
+	return pvzu::engine::SpecialBankSlots(this, std::min({aNumSeeds, aSeedsAvailable, SEEDBANK_MAX})); // PVZU: never past the packet array; 6-5 4 slots, 7-5 3 (hook 142)
 }
 
 bool Board::StageIsNight()
@@ -8633,6 +8973,8 @@ bool Board::StageIsNight()
 
 bool Board::StageHasGraveStones()
 {
+	if (bool aPvzuGraves = false; pvzu::engine::ModModeGraves(this, aPvzuGraves)) // PVZU: mod modes (hooks 143, 144)
+		return aPvzuGraves;
 	if (mApp->IsWallnutBowlingLevel() ||
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_POGO_PARTY ||
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED ||
@@ -8692,6 +9034,18 @@ bool Board::StageIsDayWithPool() {
 
 int Board::LeftFogColumn()
 {
+	if (int aPvzuColumn; pvzu::engine::ModModeFogColumn(this, aPvzuColumn)) // PVZU: mod mode 0x7c (hook 145)
+	{
+		return aPvzuColumn;
+	}
+	if (int aPvzuColumn; pvzu::engine::LaterLevelsFogColumn(this, aPvzuColumn)) // PVZU: 7-7 (the 1051 exe returns mLevel past 40)
+	{
+		return aPvzuColumn;
+	}
+	if (int aPvzuColumn; pvzu::GameData::Get().Feature("fogLevels") && pvzu::engine::FogLeftColumn(this, aPvzuColumn)) // PVZU: full-fog flag (hook 145) / per-level column from the pack
+	{
+		return aPvzuColumn;
+	}
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_AIR_RAID)		return 6;
 	if (!mApp->IsAdventureMode())										return 5;
 	if (mLevel == 31)													return 6;
@@ -8707,6 +9061,7 @@ int Board::GetSeedPacketPositionX(int theIndex)
 	if (mApp->IsSlotMachineLevel())			return theIndex * 59 + 247;
 	if (HasConveyorBeltSeedBank())			return theIndex * 50 + 91;
 
+	if (mSeedBank->mNumPackets > pvzu::kVanillaSeedSlots) return pvzu::TopBankPacketX(theIndex, mSeedBank->mNumPackets); // PVZU: Unnamed's 11-15 slots
 	if (mSeedBank->mNumPackets <= 7)		return theIndex * 59 + 85;
 	else if (mSeedBank->mNumPackets == 8)	return theIndex * 54 + 81;
 	else if (mSeedBank->mNumPackets == 9)	return theIndex * 52 + 80;
@@ -8716,6 +9071,7 @@ int Board::GetSeedPacketPositionX(int theIndex)
 int Board::GetSeedBankExtraWidth()
 {
 	int aNumPackets = mSeedBank->mNumPackets;
+	if (aNumPackets > pvzu::kVanillaSeedSlots) return pvzu::TopBankExtraWidth(aNumPackets); // PVZU: Unnamed's 11-15 slots
 	return aNumPackets <= 6 ? 0 : aNumPackets == 7 ? 60 : aNumPackets == 8 ? 76 : aNumPackets == 9 ? 112 : 153;
 }
 
@@ -8959,7 +9315,10 @@ void Board::KillAllPlantsInRadius(int theX, int theY, int theRadius)
 			continue;
 		if (GetCircleRectOverlap(theX, theY, theRadius, aPlant->GetPlantRect()))
 		{
+			if (pvzu::engine::TestCheatPlantSurvives(aPlant)) // PVZU Plan 9 C1: invincible plants
+				continue;
 			mPlantsEaten++;
+			pvzu::engine::PlantDeathCauseScope aPvzuCause(pvzu::unnamed::PlantDeathCause::BLAST); // PVZU: glove Pole leap (hook 361)
 			aPlant->Die();
 		}
 	}
@@ -8967,6 +9326,8 @@ void Board::KillAllPlantsInRadius(int theX, int theY, int theRadius)
 
 unsigned int Board::SeedNotRecommendedForLevel(SeedType theSeedType)
 {
+	if (pvzu::engine::IsModSeed(theSeedType)) // PVZU: the exe (0x41cc60 + caves 0x7a1ea0/0x7a1ef9) compares the raw seed, so
+		return 0;                              // no mod seed gets a warning; mod mushrooms never sleep by day (0x7a4770)
 	unsigned int aNotRec = 0;
 	if (Plant::IsNocturnal(theSeedType) && !StageIsNight())
 	{
@@ -9033,7 +9394,9 @@ int Board::GetGraveStoneCount()
 	return aCount;
 }
 
-void Board::DropLootPiece(int thePosX, int thePosY, int theDropFactor)
+// PVZU: returns true only when the final loot coin dropped (every early `return` is `return false`); Unnamed's
+// Grave Buster refund (hook 152) hangs off that last AddCoin. Callers that ignore it behave as vanilla.
+bool Board::DropLootPiece(int thePosX, int thePosY, int theDropFactor)
 {
 	if (mApp->IsFirstTimeAdventureMode())
 	{
@@ -9041,13 +9404,13 @@ void Board::DropLootPiece(int thePosX, int thePosY, int theDropFactor)
 		{
 			mApp->PlayFoley(FoleyType::FOLEY_ART_CHALLENGE);
 			AddCoin(thePosX, thePosY, CoinType::COIN_PRESENT_MINIGAMES, CoinMotion::COIN_MOTION_COIN);
-			return;
+			return false;
 		}
 		if (mLevel == 36 && mCurrentWave > 5 && !mApp->mPlayerInfo->mHasUnlockedPuzzleMode && CountCoinByType(CoinType::COIN_PRESENT_PUZZLE_MODE) == 0)
 		{
 			mApp->PlayFoley(FoleyType::FOLEY_ART_CHALLENGE);
 			AddCoin(thePosX, thePosY, CoinType::COIN_PRESENT_PUZZLE_MODE, CoinMotion::COIN_MOTION_COIN);
-			return;
+			return false;
 		}
 	}
 
@@ -9071,12 +9434,12 @@ void Board::DropLootPiece(int thePosX, int thePosY, int theDropFactor)
 			AddCoin(thePosX - 20, thePosY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_COIN);
 			AddCoin(thePosX - 40, thePosY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_COIN);
 			AddCoin(thePosX - 60, thePosY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_COIN);
-			return;
+			return false;
 		}
 	}
 
 	if (mTotalSpawnedWaves > 70)
-		return;
+		return false;
 
 	int aPottedPlantChance;
 	if (!mApp->mZenGarden->CanDropPottedPlantLoot())
@@ -9130,25 +9493,33 @@ void Board::DropLootPiece(int thePosX, int thePosY, int theDropFactor)
 	{
 		aCoinType = CoinType::COIN_SILVER;
 	}
-	else return;
+	else return false;
 
 	if (mApp->IsWallnutBowlingLevel() && Coin::IsMoney(aCoinType))
-		return;
+		return false;
 
 	if (mApp->IsFirstTimeAdventureMode() && mLevel == 11)
 	{
-		int aMoney = Coin::GetCoinValue(CoinType::COIN_GOLD) * mLawnMowers.mSize;
+		// PVZU: mowers driving across the wider street (past x 800) are gone in vanilla; do not count them
+		int aMowers = 0;
+		for (LawnMower* aLawnMower : mLawnMowers)
+		{
+			if (aLawnMower->mPosX <= WIDE_BOARD_WIDTH)
+				aMowers++;
+		}
+		int aMoney = Coin::GetCoinValue(CoinType::COIN_GOLD) * aMowers;
 		int aCost = StoreScreen::GetItemCost(StoreItem::STORE_ITEM_PACKET_UPGRADE);
 		aMoney += mApp->mPlayerInfo->mCoins + CountCoinsBeingCollected();
 		if (Coin::GetCoinValue(aCoinType) + aMoney >= aCost)
 		{
-			return;
+			return false;
 		}
 	}
 
 	mApp->PlayFoley(FoleyType::FOLEY_SPAWN_SUN);
 	AddCoin(thePosX - 40, thePosY, aCoinType, CoinMotion::COIN_MOTION_COIN);
 	mDroppedFirstCoin = true;
+	return true; // PVZU
 }
 
 bool Board::CanDropLoot()
@@ -9190,7 +9561,8 @@ Plant* Board::FindUmbrellaPlant(int theGridX, int theGridY)
 	{
 		if (aPlant->mDead)
 			continue;
-		if (aPlant->mSeedType == SeedType::SEED_UMBRELLA && !aPlant->NotOnGround() && GridInRange(theGridX, theGridY, aPlant->mPlantCol, aPlant->mRow, 1, 1))
+		if (aPlant->mSeedType == SeedType::SEED_UMBRELLA && !aPlant->NotOnGround() && GridInRange(theGridX, theGridY, aPlant->mPlantCol, aPlant->mRow, 1, 1) &&
+			(aPlant->mPvzu.modSeed == 0 || pvzu::engine::ModPlantGivesUmbrellaCover(aPlant))) // PVZU: a Leaf Shield gives no umbrella cover
 		{
 			return aPlant;
 		}
@@ -9275,6 +9647,10 @@ void Board::UpdateGridItems()
 
 bool Board::PlantingRequirementsMet(SeedType theSeedType)
 {
+	if (pvzu::engine::ModModeRequirementsMet(this)) // PVZU: mod mode 0x91 (hook 153)
+		return true;
+	if (pvzu::engine::TestCheatFreePlantingRules()) // PVZU Plan 9 C1: test cheat "plant anything"
+		return true;
 	switch (theSeedType)
 	{
 	case SeedType::SEED_GATLINGPEA:			return CountPlantByType(SeedType::SEED_REPEATER);

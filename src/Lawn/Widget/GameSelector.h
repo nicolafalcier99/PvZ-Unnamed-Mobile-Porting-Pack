@@ -126,7 +126,7 @@ public:
 	void                        ButtonMouseEnter(int theId) override;
 	void                        ButtonPress(int theId) override;
 	void                        ButtonDepress(int theId) override;
-	void                        ButtonDownTick(int) override{}
+	void                        ButtonDownTick(int theId) override; // PVZU: level-skip long press
 	void                        ButtonMouseLeave(int) override{}
 	void                        ButtonMouseMove(int, int, int) override{}
 	void                        KeyDown(KeyCode theKey) override;

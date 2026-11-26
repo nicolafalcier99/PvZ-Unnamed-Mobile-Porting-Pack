@@ -19,6 +19,9 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Engine/WideScreen.h" // PVZU
+#include "Mod/Engine/ModAlmanac.h" // PVZU: pages for the 26 mod plants (feature modAlmanac)
+#include "Mod/Engine/World7EliteZombies.h" // PVZU: 33 zombies, ZomBotany names (Plan 7 Task 2)
 #include <format>
 #include "../Board.h"
 #include "../Plant.h"
@@ -46,7 +49,7 @@ AlmanacDialog::AlmanacDialog(LawnApp* theApp) : LawnDialog(theApp, DIALOG_ALMANA
 	mSelectedZombie = ZOMBIE_NORMAL;
 	mDrawStandardBack = false;
 	mLoadedResourceNames.push_back("DelayLoad_Almanac");
-	LawnDialog::Resize(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
+	LawnDialog::Resize(pvzu::engine::CenteredX(), 0, BOARD_WIDTH, BOARD_HEIGHT); // PVZU: centred
 
 	for (std::string& resource : mLoadedResourceNames)
 		PvzpLoadResources(resource.c_str());
@@ -140,20 +143,22 @@ void AlmanacDialog::SetupPlant()
 {
 	ClearPlantsAndZombies();
 
+	const SeedType aPvzuSeed = pvzu::engine::ModAlmanacBaseSeed(mSelectedSeed); // PVZU: a mod plant shows its base plant
 	float aPosX = ALMANAC_PLANT_POSITION_X;
 	float aPosY = ALMANAC_PLANT_POSITION_Y;
-	if (mSelectedSeed == SEED_TALLNUT)				aPosY += 18;
-	else if (mSelectedSeed == SEED_COBCANNON)		aPosX -= 40;
-	else if (mSelectedSeed == SEED_FLOWERPOT)		aPosY -= 20;
-	else if (mSelectedSeed == SEED_INSTANT_COFFEE)	aPosY += 20;
-	else if (mSelectedSeed == SEED_GRAVEBUSTER)		aPosY += 55;
+	if (aPvzuSeed == SEED_TALLNUT)				aPosY += 18; // PVZU: aPvzuSeed (vanilla: mSelectedSeed) on these lines
+	else if (aPvzuSeed == SEED_COBCANNON)		aPosX -= 40;
+	else if (aPvzuSeed == SEED_FLOWERPOT)		aPosY -= 20;
+	else if (aPvzuSeed == SEED_INSTANT_COFFEE)	aPosY += 20;
+	else if (aPvzuSeed == SEED_GRAVEBUSTER)		aPosY += 55;
 
 	mPlant = std::make_unique<Plant>();
 	mPlant->mBoard = nullptr;
 	mPlant->mIsOnBoard = false;
-	mPlant->PlantInitialize(0, 0, mSelectedSeed, SEED_NONE);
+	mPlant->PlantInitialize(0, 0, aPvzuSeed, SEED_NONE); // PVZU: aPvzuSeed
 	mPlant->mX = aPosX;
 	mPlant->mY = aPosY;
+	pvzu::engine::ModAlmanacTintPlant(mPlant.get(), mSelectedSeed); // PVZU: in the mod plant's colour
 }
 
 void AlmanacDialog::SetupZombie()
@@ -236,7 +241,8 @@ void AlmanacDialog::Update()
 	int aMouseX = mApp->mWidgetManager->mLastMouseX;
 	int aMouseY = mApp->mWidgetManager->mLastMouseY;
 	if (SeedHitTest(aMouseX, aMouseY) != SeedType::SEED_NONE || ZombieHitTest(aMouseX, aMouseY) != ZombieType::ZOMBIE_INVALID ||
-		mCloseButton->IsMouseOver() || mIndexButton->IsMouseOver() || mPlantButton->IsMouseOver() || mZombieButton->IsMouseOver())
+		mCloseButton->IsMouseOver() || mIndexButton->IsMouseOver() || mPlantButton->IsMouseOver() || mZombieButton->IsMouseOver() ||
+		pvzu::engine::ModAlmanacOverButton(this, aMouseX, aMouseY)) // PVZU
 	{
 		mApp->SetCursor(CURSOR_HAND);
 	}
@@ -251,7 +257,8 @@ void AlmanacDialog::Update()
 
 ZombieType AlmanacDialog::GetZombieType(int theIndex)
 {
-	return theIndex < NUM_ZOMBIE_TYPES ? (ZombieType)theIndex : ZOMBIE_INVALID;
+	// PVZU: Unnamed lists 33 zombies (0..24, 26..32, the Zomboss last; exe `cmp 0x21` at 0x40324f / 0x403bd0)
+	return pvzu::engine::AlmanacZombieType(theIndex, theIndex < NUM_ZOMBIE_TYPES ? (ZombieType)theIndex : ZOMBIE_INVALID);
 }
 
 void AlmanacDialog::DrawIndex(Graphics* g)
@@ -279,7 +286,8 @@ void AlmanacDialog::DrawPlants(Graphics* g)
 	PvzpDrawString(g, "[SUBURBAN_ALMANAC_PLANTS]", BOARD_WIDTH / 2, 48, Sexy::FONT_HOUSEOFTERROR20, Color(213, 159, 43), DrawStringJustification::DS_ALIGN_CENTER);
 
 	SeedType aSeedMouseOn = SeedHitTest(mApp->mWidgetManager->mLastMouseX, mApp->mWidgetManager->mLastMouseY);
-	for (SeedType aSeedType = SeedType::SEED_PEASHOOTER; aSeedType < NUM_ALMANAC_SEEDS; aSeedType = (SeedType)(aSeedType + 1))
+	const bool aPvzuModGrid = pvzu::engine::DrawModAlmanacGrid(this, g); // PVZU: the mod plants' grid instead
+	for (SeedType aSeedType = SeedType::SEED_PEASHOOTER; aSeedType < NUM_ALMANAC_SEEDS && !aPvzuModGrid; aSeedType = (SeedType)(aSeedType + 1)) // PVZU: && !aPvzuModGrid
 	{
 		int aPosX, aPosY;
 		GetSeedPosition(aSeedType, aPosX, aPosY);
@@ -332,6 +340,8 @@ void AlmanacDialog::DrawPlants(Graphics* g)
 	}
 
 	g->DrawImage(Sexy::IMAGE_ALMANAC_PLANTCARD, 459, 86);
+	if (pvzu::engine::DrawModAlmanacCard(this, g)) // PVZU: a mod plant's name, text, cost and recharge
+		return;
 	const PlantDefinition& aPlantDef = GetPlantDefinition(mSelectedSeed);
 	std::string aName = Plant::GetNameString(mSelectedSeed, SEED_NONE);
 	std::string aDescriptionName = std::format("[{}_DESCRIPTION]", aPlantDef.mPlantName);
@@ -359,34 +369,40 @@ void AlmanacDialog::DrawZombies(Graphics* g)
 	PvzpDrawString(g, "[SUBURBAN_ALMANAC_ZOMBIES]", BOARD_WIDTH / 2, 54, Sexy::FONT_DWARVENTODCRAFT24, Color(0, 196, 0), DS_ALIGN_CENTER);
 
 	ZombieType aZombieMouseOn = ZombieHitTest(mApp->mWidgetManager->mLastMouseX, mApp->mWidgetManager->mLastMouseY);
-	for (int i = 0; i < NUM_ALMANAC_ZOMBIES; i++)
+	for (int i = 0; i < pvzu::engine::AlmanacZombieCount(NUM_ALMANAC_ZOMBIES); i++) // PVZU: 33 in Unnamed
 	{
 		ZombieType aZombieType = GetZombieType(i);
 		int aPosX, aPosY;
 		GetZombiePosition(aZombieType, aPosX, aPosY);
+		const float aPvzuScale = pvzu::engine::AlmanacWindowScale(); // PVZU: smaller windows for 33 zombies (1 = vanilla)
+		Graphics aPvzuCell(*g); // PVZU
+		aPvzuCell.SetScale(aPvzuScale, aPvzuScale, static_cast<float>(aPosX), static_cast<float>(aPosY)); // PVZU
+		Graphics* gw = &aPvzuCell; // PVZU: draws the window images
 		if (aZombieType != ZombieType::ZOMBIE_INVALID)
 		{
 			if (!ZombieIsShown(aZombieType))
-				g->DrawImage(Sexy::IMAGE_ALMANAC_ZOMBIEBLANK, aPosX, aPosY);
+				gw->DrawImage(Sexy::IMAGE_ALMANAC_ZOMBIEBLANK, aPosX, aPosY);
 			else
 			{
-				g->DrawImage(Sexy::IMAGE_ALMANAC_ZOMBIEWINDOW, aPosX, aPosY);
+				gw->DrawImage(Sexy::IMAGE_ALMANAC_ZOMBIEWINDOW, aPosX, aPosY);
 				if (aZombieType == aZombieMouseOn)
 				{
-					g->SetDrawMode(Graphics::DRAWMODE_ADDITIVE);
-					g->SetColor(Color(255, 255, 255, 48));
-					g->SetColorizeImages(true);
-					g->DrawImage(Sexy::IMAGE_ALMANAC_ZOMBIEWINDOW, aPosX, aPosY);
-					g->SetDrawMode(Graphics::DRAWMODE_NORMAL);
-					g->SetColorizeImages(false);
+					gw->SetDrawMode(Graphics::DRAWMODE_ADDITIVE);
+					gw->SetColor(Color(255, 255, 255, 48));
+					gw->SetColorizeImages(true);
+					gw->DrawImage(Sexy::IMAGE_ALMANAC_ZOMBIEWINDOW, aPosX, aPosY);
+					gw->SetDrawMode(Graphics::DRAWMODE_NORMAL);
+					gw->SetColorizeImages(false);
 				}
 
 				ZombieType aZombieTypeToDraw = aZombieType;
 				Graphics aZombieGraphics = Graphics(*g);
-				aZombieGraphics.SetClipRect(aPosX + 2, aPosY + 2, 72, 72);
-				aZombieGraphics.Translate(aPosX + 1, aPosY - 6);
-				aZombieGraphics.mScaleX = 0.5f;
-				aZombieGraphics.mScaleY = 0.5f;
+				const float s = aPvzuScale; // PVZU
+				aZombieGraphics.SetClipRect(aPosX + static_cast<int>(2 * s), aPosY + static_cast<int>(2 * s), static_cast<int>(72 * s), static_cast<int>(72 * s)); // PVZU: scaled
+				aZombieGraphics.TranslateF(aPosX + 1 * s, aPosY - 6 * s); // PVZU: scaled (vanilla Translate(aPosX + 1, aPosY - 6))
+				aZombieGraphics.mScaleX = 0.5f * s; // PVZU: scaled
+				aZombieGraphics.mScaleY = 0.5f * s; // PVZU: scaled
+				const float aPvzuTx = aZombieGraphics.mTransX, aPvzuTy = aZombieGraphics.mTransY; // PVZU
 				switch (aZombieType)
 				{
 				case ZombieType::ZOMBIE_POLEVAULTER:
@@ -411,6 +427,8 @@ void AlmanacDialog::DrawZombies(Graphics* g)
 				case ZombieType::ZOMBIE_LADDER:			aZombieGraphics.TranslateF(0, -3);	break;
 				default: break;
 				}
+				aZombieGraphics.mTransX = aPvzuTx + (aZombieGraphics.mTransX - aPvzuTx) * s; // PVZU: per-type offsets scaled
+				aZombieGraphics.mTransY = aPvzuTy + (aZombieGraphics.mTransY - aPvzuTy) * s; // PVZU
 				if (ZombieHasSilhouette(aZombieType))
 				{
 					aZombieGraphics.SetColor(Color(0, 0, 0, 40));
@@ -419,15 +437,15 @@ void AlmanacDialog::DrawZombies(Graphics* g)
 				mApp->mReanimatorCache->DrawCachedZombie(&aZombieGraphics, 0, 0, aZombieTypeToDraw);
 				aZombieGraphics.SetColorizeImages(false);
 
-				g->DrawImage(Sexy::IMAGE_ALMANAC_ZOMBIEWINDOW2, aPosX, aPosY);
+				gw->DrawImage(Sexy::IMAGE_ALMANAC_ZOMBIEWINDOW2, aPosX, aPosY); // PVZU: gw
 				if (aZombieType == aZombieMouseOn)
 				{
-					g->SetDrawMode(Graphics::DRAWMODE_ADDITIVE);
-					g->SetColor(Color(255, 255, 255, 48));
-					g->SetColorizeImages(true);
-					g->DrawImage(Sexy::IMAGE_ALMANAC_ZOMBIEWINDOW2, aPosX, aPosY);
-					g->SetDrawMode(Graphics::DRAWMODE_NORMAL);
-					g->SetColorizeImages(false);
+					gw->SetDrawMode(Graphics::DRAWMODE_ADDITIVE);
+					gw->SetColor(Color(255, 255, 255, 48));
+					gw->SetColorizeImages(true);
+					gw->DrawImage(Sexy::IMAGE_ALMANAC_ZOMBIEWINDOW2, aPosX, aPosY);
+					gw->SetDrawMode(Graphics::DRAWMODE_NORMAL);
+					gw->SetColorizeImages(false);
 				}
 			}
 		}
@@ -459,14 +477,15 @@ void AlmanacDialog::DrawZombies(Graphics* g)
 	g->DrawImage(Sexy::IMAGE_ALMANAC_ZOMBIECARD, 455, 78);
 
 	const ZombieDefinition& aZombieDef = GetZombieDefinition(mSelectedZombie);
-	std::string aName = ZombieHasSilhouette(mSelectedZombie) ? "???" : std::format("[{}]", aZombieDef.mZombieName);
+	const std::string aPvzuName = pvzu::engine::AlmanacZombieNameKey(mSelectedZombie, aZombieDef.mZombieName); // PVZU: ZomBotany keys (hooks 9 / 10)
+	std::string aName = ZombieHasSilhouette(mSelectedZombie) ? "???" : std::format("[{}]", aPvzuName);
 	PvzpDrawString(g, aName, 613, 362, Sexy::FONT_DWARVENTODCRAFT18GREENINSET, Color(190, 255, 235, 255), DS_ALIGN_CENTER);
 
 	std::string aDescription;
 	DrawStringJustification aAlign;
 	if (ZombieHasDescription(mSelectedZombie))
 	{
-		aDescription = PvzpStringTranslate(std::format("[{}_DESCRIPTION]", aZombieDef.mZombieName));
+		aDescription = PvzpStringTranslate(std::format("[{}_DESCRIPTION]", aPvzuName)); // PVZU: aPvzuName
 		aAlign = DS_ALIGN_LEFT;
 	}
 	else
@@ -517,6 +536,7 @@ void AlmanacDialog::Draw(Graphics* g)
 	mIndexButton->Draw(g);
 	mPlantButton->Draw(g);
 	mZombieButton->Draw(g);
+	pvzu::engine::DrawModAlmanacButton(this, g); // PVZU: "More plants" / "First plants"
 }
 
 void AlmanacDialog::GetSeedPosition(SeedType theSeedType, int& x, int& y)
@@ -532,6 +552,8 @@ void AlmanacDialog::GetSeedPosition(SeedType theSeedType, int& x, int& y)
 
 SeedType AlmanacDialog::SeedHitTest(int x, int y)
 {
+	if (SeedType aPvzuSeed; pvzu::engine::ModAlmanacHitTest(this, x, y, aPvzuSeed)) // PVZU: the mod grid
+		return aPvzuSeed;
 	if (mMouseVisible && mOpenPage == AlmanacPage::ALMANAC_PAGE_PLANTS)
 	{
 		for (SeedType aSeedType = SeedType::SEED_PEASHOOTER; aSeedType < NUM_ALMANAC_SEEDS; aSeedType = (SeedType)(aSeedType + 1))
@@ -569,7 +591,7 @@ bool AlmanacDialog::ZombieIsShown(ZombieType theZombieType)
 		return mApp->CanSpawnYetis() || ZombieHasSilhouette(ZombieType::ZOMBIE_YETI);
 
 	// zombies encountered in adventure mode
-	if (theZombieType <= ZombieType::ZOMBIE_BOSS)
+	if (pvzu::engine::AlmanacShowsType(theZombieType)) // PVZU: vanilla `<= ZOMBIE_BOSS`; Unnamed also 26..32, same rule
 	{
 		// once adventure is finished, every zombie is shown
 		if (mApp->HasFinishedAdventure())
@@ -608,6 +630,8 @@ bool AlmanacDialog::ZombieHasDescription(ZombieType theZombieType)
 
 void AlmanacDialog::GetZombiePosition(ZombieType theZombieType, int& x, int& y)
 {
+	if (float aPvzuScale; pvzu::engine::AlmanacZombieSlot(theZombieType, x, y, aPvzuScale)) // PVZU: Unnamed 6 x 6 grid
+		return;
 	if (theZombieType == ZombieType::ZOMBIE_BOSS)
 		x = 192, y = 486;
 	else
@@ -621,14 +645,15 @@ ZombieType AlmanacDialog::ZombieHitTest(int x, int y)
 {
 	if (mMouseVisible && mOpenPage == AlmanacPage::ALMANAC_PAGE_ZOMBIES)
 	{
-		for (int i = 0; i < NUM_ALMANAC_ZOMBIES; i++)
+		for (int i = 0; i < pvzu::engine::AlmanacZombieCount(NUM_ALMANAC_ZOMBIES); i++) // PVZU: 33 in Unnamed
 		{
 			ZombieType aZombieType = GetZombieType(i);
 			if (aZombieType != ZombieType::ZOMBIE_INVALID && ZombieIsShown(aZombieType))
 			{
 				int aZombieX, aZombieY;
 				GetZombiePosition(aZombieType, aZombieX, aZombieY);
-				if (Rect(aZombieX, aZombieY, 76, 76).Contains(x, y))
+				const int aPvzuSize = static_cast<int>(76 * pvzu::engine::AlmanacWindowScale() + 0.5f); // PVZU: vanilla 76
+				if (Rect(aZombieX, aZombieY, aPvzuSize, aPvzuSize).Contains(x, y))
 					return aZombieType;
 			}
 		}
@@ -646,6 +671,8 @@ void AlmanacDialog::MouseUp([[maybe_unused]] int x, [[maybe_unused]] int y, [[ma
 
 void AlmanacDialog::MouseDown(int x, int y, [[maybe_unused]] int theClickCount)
 {
+	if (pvzu::engine::ModAlmanacMouseDown(this, x, y)) // PVZU: "More plants" button
+		return;
 	if (mPlantButton->IsMouseOver() || mCloseButton->IsMouseOver() || mIndexButton->IsMouseOver())
 		mApp->PlaySample(Sexy::SOUND_TAP);
 	if (mZombieButton->IsMouseOver())

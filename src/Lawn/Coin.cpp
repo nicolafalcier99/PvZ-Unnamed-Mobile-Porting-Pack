@@ -19,6 +19,10 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Engine/WideScreen.h" // PVZU
+#include "Mod/Engine/OptionsPanel.h" // PVZU
+#include "Mod/Touch.h" // PVZU
+#include <algorithm>
 #include "Coin.h"
 #include "Board.h"
 #include <algorithm>
@@ -37,6 +41,7 @@
 #include "../PvzpLib/Reanimator.h"
 #include "../PvzpLib/Attachment.h"
 #include "Widget/AchievementsScreen.h"
+#include "Mod/Engine/ModModes.h" // PVZU: mod-only modes 0x65..0x94
 
 Coin::Coin()
 {
@@ -436,7 +441,7 @@ void Coin::ScoreCoin()
 
 	if (IsSun())
 	{
-		int aSunValue = GetSunValue();
+		int aSunValue = pvzu::engine::CollectedSunValue(GetSunValue()); // PVZU: Unnamed double sun (hook 204)
 		mBoard->AddSunMoney(aSunValue);
 	}
 	else if (IsMoney())
@@ -493,6 +498,7 @@ void Coin::UpdateFall()
 	}
 	else if (mPosY + mVelY < mGroundY)
 	{
+		pvzu::engine::ModModeCoinFalling(this, false); // PVZU: mod mode 0x66, a falling large sun is charged (hook 205)
 		mPosY += mVelY;
 		if (mCoinMotion == CoinMotion::COIN_MOTION_FROM_PLANT)
 		{
@@ -517,6 +523,7 @@ void Coin::UpdateFall()
 	}
 	else
 	{
+		pvzu::engine::ModModeCoinFalling(this, true); // PVZU: mod mode 0x66, landing clears the charge (hook 206)
 		if (mNeedsBouncyArrow && !mHasBouncyArrow)
 		{
 			float aParticleOffsetX = mWidth / 2;
@@ -739,11 +746,15 @@ void Coin::Update()
 	{
 		UpdateFade();
 	}
+	else if (pvzu::engine::CoinCollectsItself(this)) // PVZU: Unnamed auto-collect (hook 207)
+	{
+		Collect();
+	}
 	else if (!mIsBeingCollected)
 	{
 		UpdateFall();
 	}
-	else
+	else if (!pvzu::engine::ModModeCoinCollected(this)) // PVZU: mod mode 0x66, a charged sun explodes (hook 208)
 	{
 		UpdateCollected();
 	}
@@ -1425,6 +1436,10 @@ bool Coin::MouseHitTest(int theX, int theY, HitResult* theHitResult)
 	if (mType == CoinType::COIN_SUN)
 	{
 		aExtraClickSize = 15;
+	}
+	if (mBoard && pvzu::engine::IsWideBoard(mBoard) && pvzu::HudFits(pvzu::engine::Wide())) // PVZU: finger-sized pick-up (phone HUD)
+	{
+		aExtraClickSize = std::max(aExtraClickSize, pvzu::kTouchCoinRadius - 15);
 	}
 
 	bool aCanHitCoin = true;

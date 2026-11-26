@@ -19,6 +19,9 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Engine/WideScreen.h" // PVZU
+#include "Mod/Engine/FogEliteZombies.h" // PVZU
+#include "Mod/Engine/Level70Boss.h" // PVZU: mowers pass boss-class zombies
 #include "Board.h"
 #include "Cutscene.h"
 #include "LawnMower.h"
@@ -204,11 +207,18 @@ void LawnMower::Update()
 	}
 
 	Rect aAttackRect = GetLawnMowerAttackRect();
+	const bool aPastVanillaEdge = mPosX > WIDE_BOARD_WIDTH; // PVZU: only on a wider screen; vanilla removed it at 800
 	for (Zombie* aZombie : mBoard->mZombies)
 	{
+		if (aPastVanillaEdge)
+			break; // PVZU: drives on across the visible street but mows nothing (as in vanilla, where it was gone)
 		if (aZombie->mDead)
 			continue;
 		if (aZombie->mZombieType == ZombieType::ZOMBIE_BOSS)
+			continue;
+		if (pvzu::engine::FogMowerSkips(aZombie)) // PVZU: Unnamed Balloons fly over mowers (cave 0x651615)
+			continue;
+		if (pvzu::engine::Level70BossMowerSkips(aZombie)) // PVZU: and boss-class zombies (0x7955f3 -> 0xc01f50, 0x795606)
 			continue;
 
 		if (aZombie->mRow - mRow)
@@ -264,7 +274,7 @@ void LawnMower::Update()
 		mApp->mSoundSystem->StopFoley(FoleyType::FOLEY_LAWNMOWER);
 		Die();
 	}
-	if (mPosX > WIDE_BOARD_WIDTH)
+	if (mPosX > pvzu::engine::VisibleRightBoardX(mBoard)) // PVZU: leave at the visible edge (vanilla 800)
 	{
 		Die();
 	}

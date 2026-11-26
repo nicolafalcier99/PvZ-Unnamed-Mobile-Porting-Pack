@@ -19,6 +19,7 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Layout.h" // PVZU
 #include "SexyAppBase.h"
 #include "PvzpList.h"
 #include <algorithm>
@@ -37,6 +38,7 @@
 #include "misc/PerfTimer.h"
 #include "misc/SexyMatrix.h"
 #include "graphics/GLInterface.h"
+#include "Mod/Engine/HdTextures.h" // PVZU
 
 void Pvzp_SWTri_AddAllDrawTriFuncs()
 {
@@ -683,7 +685,7 @@ void PvzpBltMatrix(Graphics* g, Image* theImage, const SexyMatrix3& theTransform
 
 	PvzpSandImageIfNeeded(theImage);
 
-	if (theClipRect.mX != 0 || theClipRect.mY != 0 || theClipRect.mWidth != BOARD_WIDTH || theClipRect.mHeight != BOARD_HEIGHT)
+	if (theClipRect.mX != 0 || theClipRect.mY != 0 || theClipRect.mWidth != pvzu::CurrentLayout().width || theClipRect.mHeight != BOARD_HEIGHT) // PVZU: full-screen clip is W wide
 	{
 		g->mDestImage->BltMatrix(theImage, aOffsetX, aOffsetY, theTransform, theClipRect, theColor, theDrawMode, theSrcRect, g->mLinearBlend);
 	}
@@ -695,7 +697,7 @@ void PvzpBltMatrix(Graphics* g, Image* theImage, const SexyMatrix3& theTransform
 	}
 	else
 	{
-		Rect aBufFixClipRect(0, 0, BOARD_WIDTH + 1, BOARD_HEIGHT + 1);
+		Rect aBufFixClipRect(0, 0, pvzu::CurrentLayout().width + 1, BOARD_HEIGHT + 1); // PVZU
 		g->mDestImage->BltMatrix(theImage, aOffsetX, aOffsetY, theTransform, aBufFixClipRect, theColor, theDrawMode, theSrcRect, g->mLinearBlend);
 	}
 
@@ -870,6 +872,7 @@ void FixPixelsOnAlphaEdgeForBlending(Image* theImage)
 		return;
 
 	uint32_t* aBitsPtr = aImage->GetBits();
+	const int aPvzuCountBefore = aImage->mBitsChangedCount; // PVZU: the HD pack is bled the same way
 	PerfTimer aTimer;
 	aTimer.Start();
 
@@ -886,6 +889,7 @@ void FixPixelsOnAlphaEdgeForBlending(Image* theImage)
 		}
 	}
 	aImage->mBitsChangedCount++;
+	pvzu::hd::KeepIfMatchedBefore(aImage, aPvzuCountBefore); // PVZU: only fully transparent pixels changed
 
 	int aDuration = std::max(aTimer.GetDuration(), 0.0);
 	if (aDuration > 20)

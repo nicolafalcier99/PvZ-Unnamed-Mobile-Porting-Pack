@@ -49,6 +49,7 @@ file(GLOB SOURCES CONFIGURE_DEPENDS
 	src/Lawn/*.cpp
 	src/Lawn/Widget/*.cpp
 	src/Lawn/System/*.cpp
+	src/Mod/Engine/*.cpp # PVZU: engine bridges (need engine headers, not in pvzu_core)
 )
 
 option(LOW_MEMORY "Enable low memory mode" OFF)
@@ -292,4 +293,32 @@ elseif (IOS)
 		set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/ios/Assets.xcassets"
 			PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 	endif()
+endif()
+
+# PVZU: our own code (src/Mod) as a library, linked into the game and into the tests.
+file(GLOB PVZU_CORE_SOURCES CONFIGURE_DEPENDS src/Mod/*.cpp src/Mod/Unnamed/*.cpp)
+if(PVZU_CORE_SOURCES)
+	add_library(pvzu_core STATIC ${PVZU_CORE_SOURCES})
+else()
+	add_library(pvzu_core INTERFACE)
+endif()
+target_include_directories(pvzu_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
+if(PVZU_CORE_SOURCES)
+	target_include_directories(pvzu_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
+	target_compile_features(pvzu_core PUBLIC cxx_std_20)
+	# Sources hold UTF-8 text (Chinese names); MSVC reads files as the ANSI code page unless told (the game has it above).
+	target_compile_options(pvzu_core PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+endif()
+target_link_libraries(pvz-portable PRIVATE pvzu_core)
+
+# PVZU: unit tests (desktop only)
+if(ANDROID OR IOS OR EMSCRIPTEN)
+	set(PVZU_BUILD_TESTS_DEFAULT OFF)
+else()
+	set(PVZU_BUILD_TESTS_DEFAULT ON)
+endif()
+option(PVZU_BUILD_TESTS "Build PVZU unit tests" ${PVZU_BUILD_TESTS_DEFAULT})
+if(PVZU_BUILD_TESTS)
+	enable_testing()
+	add_subdirectory(tests)
 endif()

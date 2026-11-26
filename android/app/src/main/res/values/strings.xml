@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PvZ Portable</string>
+    <string name="app_name">PvZ Unnamed</string>
 
     <!-- ResourceImportActivity -->
     <string name="status_ready">Game resources found. Ready to play!</string>
@@ -10,6 +10,8 @@
     <string name="import_help">Select a ZIP file or a folder that contains legally purchased copy of main.pak and the properties/ directory.</string>
     <string name="btn_pick_zip">Select ZIP File</string>
     <string name="btn_pick_dir">Select Resource Folder</string>
+    <string name="btn_pick_unnamed_zip">Import Unnamed ZIP (Unnamed mode)</string>
+    <string name="unnamed_import_success">Unnamed imported: %1$d files. Turn on Options → Unnamed Mode.</string>
 
     <string name="section_save_data">Import/Export Save Data (Optional)</string>
     <string name="btn_export_save">Export Save Data</string>

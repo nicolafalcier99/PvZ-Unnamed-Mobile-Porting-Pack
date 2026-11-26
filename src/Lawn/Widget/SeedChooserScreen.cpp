@@ -19,6 +19,11 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Layout.h" // PVZU
+#include "Mod/Engine/OptionsPanel.h" // PVZU
+#include "Mod/Engine/WideScreen.h" // PVZU
+#include "Mod/Engine/ModPlants.h" // PVZU Plan 8: CARD seeds
+#include "Mod/Engine/SpecialLevelHooks.h" // PVZU: 71 / 73 chooser bans
 #include "../Board.h"
 #include "../Zombie.h"
 #include "GameButton.h"
@@ -39,7 +44,10 @@
 #include "widget/Dialog.h"
 #include "misc/MTRand.h"
 #include "../../PvzpLib/PvzpStringFile.h"
+#include "Mod/Engine/ModModes.h" // PVZU: mod-mode seed bans
 #include "widget/WidgetManager.h"
+#include "Mod/Engine/ModesVanilla.h" // PVZU
+#include "Mod/Engine/HoldInfo.h" // PVZU: touch hold-for-info panel
 #include <algorithm>
 
 SeedChooserScreen::SeedChooserScreen()
@@ -57,6 +65,7 @@ SeedChooserScreen::SeedChooserScreen()
 	mToolTip = std::make_unique<ToolTipWidget>();
 	mToolTip->mMaxLinesWidth = mApp->GetInteger("SEED_CHOOSER_SCREEN_TOOL_TIP_MAX_LINE_WIDTH", 0);
 	mToolTipSeed = -1;
+	pvzu::engine::ChooserHoldReset(); // PVZU: touch hold-for-info panel
 
 	mStartButton = std::make_unique<GameButton>(SeedChooserScreen::SeedChooserScreen_Start);
 	mStartButton->SetLabel("[LETS_ROCK_BUTTON]"); // the localization key name is wrong
@@ -73,7 +82,7 @@ SeedChooserScreen::SeedChooserScreen()
 
 	mMenuButton = std::make_unique<GameButton>(SeedChooserScreen::SeedChooserScreen_Menu);
 	mMenuButton->SetLabel("[MENU_BUTTON]");
-	mMenuButton->Resize(681, -10, 117, 46);
+	mMenuButton->Resize(pvzu::ChooserRightButtonX(681, pvzu::CurrentLayout()), -10, 117, 46); // PVZU: right edge, inside the safe inset
 	mMenuButton->mDrawStoneButton = true;
 
 	mRandomButton = std::make_unique<GameButton>(SeedChooserScreen::SeedChooserScreen_Random);
@@ -122,7 +131,7 @@ SeedChooserScreen::SeedChooserScreen()
 	mAlmanacButton->SetFont(Sexy::FONT_BRIANNETOD12);
 	mAlmanacButton->SetLabelColor(aBtnColor);
 	mAlmanacButton->SetLabelHiliteColor(aBtnColor);
-	mAlmanacButton->Resize(560, 572, aImageWidth, aImageHeight);
+	mAlmanacButton->Resize(pvzu::ChooserRightButtonX(560, pvzu::CurrentLayout()), 572, aImageWidth, aImageHeight); // PVZU: right edge
 	mAlmanacButton->mParentWidget = this;
 	mAlmanacButton->mTextOffsetY = 1;
 
@@ -134,7 +143,7 @@ SeedChooserScreen::SeedChooserScreen()
 	mStoreButton->SetFont(Sexy::FONT_BRIANNETOD12);
 	mStoreButton->SetLabelColor(aBtnColor);
 	mStoreButton->SetLabelHiliteColor(aBtnColor);
-	mStoreButton->Resize(680, 572, aImageWidth, aImageHeight);
+	mStoreButton->Resize(pvzu::ChooserRightButtonX(680, pvzu::CurrentLayout()), 572, aImageWidth, aImageHeight); // PVZU: right edge
 	mStoreButton->mParentWidget = this;
 	mStoreButton->mTextOffsetY = 1;
 
@@ -159,7 +168,8 @@ SeedChooserScreen::SeedChooserScreen()
 
 	DBG_ASSERT(mApp->GetSeedsAvailable() < NUM_SEED_TYPES);
 	memset(mChosenSeeds, 0, sizeof(mChosenSeeds));
-	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEEDS_IN_CHOOSER; aSeedType = (SeedType)(aSeedType + 1))
+	pvzu::engine::ModChooserOpens(); // PVZU: a CARD change from the options panel counts from this chooser
+	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < pvzu::engine::ChooserSeedEnd(); aSeedType = (SeedType)(aSeedType + 1)) // PVZU: + CARD seeds
 	{
 		ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
 		aChosenSeed.mSeedType = aSeedType;
@@ -199,7 +209,7 @@ SeedChooserScreen::SeedChooserScreen()
 		aStarFruit.mSeedIndexInBank = 0;
 		mSeedsInBank++;
 	}
-	if (mApp->IsAdventureMode() && !mApp->IsFirstTimeAdventureMode())
+	if (pvzu::engine::DavePicksSeeds(mApp, mApp->IsAdventureMode() && !mApp->IsFirstTimeAdventureMode())) // PVZU: 戴夫不选卡, 65/73 (hook 436)
 		CrazyDavePickSeeds();
 	UpdateImitaterButton();
 }
@@ -283,6 +293,8 @@ bool SeedChooserScreen::Has7Rows()
 
 void SeedChooserScreen::GetSeedPositionInChooser(int theIndex, int& x, int& y)
 {
+	if (pvzu::engine::ModChooserPosition(this, theIndex, x, y)) // PVZU: CARD seeds 49..52 and mod plants: second panel
+		return;
 	if (theIndex == SEED_IMITATER)
 	{
 		x = mImitaterButton->mX;
@@ -307,7 +319,7 @@ void SeedChooserScreen::GetSeedPositionInChooser(int theIndex, int& x, int& y)
 
 void SeedChooserScreen::GetSeedPositionInBank(int theIndex, int& x, int& y)
 {
-	x = mBoard->mSeedBank->mX - mX + mBoard->GetSeedPacketPositionX(theIndex);
+	x = mBoard->mSeedBank->mX + pvzu::engine::Camera(mBoard).rest - mX + mBoard->GetSeedPacketPositionX(theIndex); // PVZU: bank x is board-rest relative
 	y = mBoard->mSeedBank->mY - mY + 8;
 }
 
@@ -323,6 +335,12 @@ unsigned int SeedChooserScreen::SeedNotRecommendedToPick(SeedType theSeedType)
 
 bool SeedChooserScreen::SeedNotAllowedToPick(SeedType theSeedType)
 {
+	if (pvzu::engine::SpecialSeedBarred(mBoard, theSeedType)) // PVZU: 71 Blover, 73 eleven seeds (hook 425)
+		return true;
+	if (pvzu::engine::ModModeHidesSeed(mApp, theSeedType)) // PVZU: mod modes 0x65..0x94 (hook 425)
+		return true;
+	if (pvzu::engine::ModesSeedBanned(mApp, theSeedType)) // PVZU: Unnamed Grave Danger has no Grave Buster (0x7b0f00 chain)
+		return true;
 	return mApp->mGameMode == GAMEMODE_CHALLENGE_LAST_STAND && (theSeedType == SEED_SUNFLOWER || theSeedType == SEED_SUNSHROOM ||
 		theSeedType == SEED_TWINSUNFLOWER || theSeedType == SEED_SEASHROOM || theSeedType == SEED_PUFFSHROOM);
 }
@@ -348,6 +366,8 @@ void SeedChooserScreen::Draw(Graphics* g)
 	}
 	// the localization key name is wrong
 	PvzpDrawString(g, "[CHOOSE_YOUR_PLANTS]", 229, 110, Sexy::FONT_DWARVENTODCRAFT18YELLOW, Color::White, DS_ALIGN_CENTER);
+	pvzu::engine::DrawModChooserPanel(this, g); // PVZU: CARD's second panel (back, shadows of picked seeds)
+	pvzu::engine::ModModeChooserDraw(this, g); // PVZU: mod mode 0x92 options (hook 469)
 
 	int aNumSeeds = Has7Rows() ? 48 : 40;
 	for (SeedType aSeedShadow = SEED_PEASHOOTER; aSeedShadow < aNumSeeds; aSeedShadow = (SeedType)(aSeedShadow + 1))
@@ -384,7 +404,7 @@ void SeedChooserScreen::Draw(Graphics* g)
 		}
 	}
 
-	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEEDS_IN_CHOOSER; aSeedType = (SeedType)(aSeedType + 1))
+	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < pvzu::engine::ChooserSeedEnd(); aSeedType = (SeedType)(aSeedType + 1)) // PVZU: + CARD seeds
 	{
 		ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
 		ChosenSeedState aSeedState = aChosenSeed.mSeedState;
@@ -400,7 +420,8 @@ void SeedChooserScreen::Draw(Graphics* g)
 			int aPosY = aChosenSeed.mY;
 			if (aSeedState == SEED_IN_BANK)
 			{
-				aPosX -= mX;
+				// PVZU: bank positions already subtract mX (GetSeedPositionInBank); vanilla's second "-= mX" only worked
+				// because the chooser was always at x 0. It now sits right of the safe inset. (mY still compensates the slide.)
 				aPosY -= mY;
 			}
 			DrawSeedPacket(g, aPosX, aPosY, aChosenSeed.mSeedType, aChosenSeed.mImitaterType, 0, aGrayed ? 115 : 255, true, false);
@@ -408,7 +429,7 @@ void SeedChooserScreen::Draw(Graphics* g)
 	}
 
 	mImitaterButton->Draw(g);
-	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEEDS_IN_CHOOSER; aSeedType = (SeedType)(aSeedType + 1))
+	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < pvzu::engine::ChooserSeedEnd(); aSeedType = (SeedType)(aSeedType + 1)) // PVZU: + CARD seeds
 	{
 		ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
 		ChosenSeedState aSeedState = aChosenSeed.mSeedState;
@@ -427,7 +448,9 @@ void SeedChooserScreen::Draw(Graphics* g)
 	aBoardFrameG.mTransX -= mX;
 	aBoardFrameG.mTransY -= mY;
 	mMenuButton->Draw(&aBoardFrameG);
-	mToolTip->Draw(g);
+	if (pvzu::engine::ChooserSmallToolTipShown(this)) // PVZU: a finger gets the big panel instead
+		mToolTip->Draw(g);
+	pvzu::engine::DrawChooserHoldInfo(this, g); // PVZU: touch hold-for-info panel, over everything
 }
 
 void SeedChooserScreen::UpdateViewLawn()
@@ -437,23 +460,25 @@ void SeedChooserScreen::UpdateViewLawn()
 	if (mViewLawnTime == 100) mBoard->DisplayAdviceAgain("[CLICK_TO_CONTINUE]", MESSAGE_STYLE_HINT_STAY, ADVICE_CLICK_TO_CONTINUE);
 	else if (mViewLawnTime == 251) mViewLawnTime = 250;
 
-	int aBoardX = BOARD_IMAGE_WIDTH_OFFSET - mApp->mWidth;
+	// PVZU: pan between the street view and the board's rest position (vanilla: -380 and 0)
+	const pvzu::BoardCamera aCamera = pvzu::engine::Camera(mBoard);
+	int aBoardX = -aCamera.street;
 	int aSeedChooserY = SEED_CHOOSER_OFFSET_Y - Sexy::IMAGE_SEEDCHOOSER_BACKGROUND->mHeight;
 	if (mViewLawnTime <= 100)
 	{
-		mBoard->Move(-PvzpAnimateCurve(0, 100, mViewLawnTime, aBoardX, 0, CURVE_EASE_IN_OUT), 0);
-		Move(0, PvzpAnimateCurve(0, 40, mViewLawnTime, aSeedChooserY, SEED_CHOOSER_OFFSET_Y, CURVE_EASE_IN_OUT));
+		mBoard->Move(-PvzpAnimateCurve(0, 100, mViewLawnTime, aBoardX, -aCamera.rest, CURVE_EASE_IN_OUT), 0);
+		Move(pvzu::ChooserScreenX(pvzu::CurrentLayout()), PvzpAnimateCurve(0, 40, mViewLawnTime, aSeedChooserY, SEED_CHOOSER_OFFSET_Y, CURVE_EASE_IN_OUT));
 	}
 	else if (mViewLawnTime <= 250)
 	{
-		mBoard->Move(0, 0);
-		Move(0, SEED_CHOOSER_OFFSET_Y);
+		mBoard->Move(aCamera.rest, 0);
+		Move(pvzu::ChooserScreenX(pvzu::CurrentLayout()), SEED_CHOOSER_OFFSET_Y);
 	}
 	else if (mViewLawnTime <= 350)
 	{
 		mBoard->ClearAdvice(ADVICE_CLICK_TO_CONTINUE);
-		mBoard->Move(-PvzpAnimateCurve(250, 350, mViewLawnTime, 0, aBoardX, CURVE_EASE_IN_OUT), 0);
-		Move(0, PvzpAnimateCurve(310, 350, mViewLawnTime, SEED_CHOOSER_OFFSET_Y, aSeedChooserY, CURVE_EASE_IN_OUT));
+		mBoard->Move(-PvzpAnimateCurve(250, 350, mViewLawnTime, -aCamera.rest, aBoardX, CURVE_EASE_IN_OUT), 0);
+		Move(pvzu::ChooserScreenX(pvzu::CurrentLayout()), PvzpAnimateCurve(310, 350, mViewLawnTime, SEED_CHOOSER_OFFSET_Y, aSeedChooserY, CURVE_EASE_IN_OUT));
 	}
 	else
 	{
@@ -498,7 +523,7 @@ void SeedChooserScreen::UpdateCursor()
 	if (aMouseSeedType != SEED_NONE)
 	{
 		ChosenSeed& aMouseChosenSeed = mChosenSeeds[aMouseSeedType];
-		if (aMouseChosenSeed.mSeedState == SEED_IN_BANK && aMouseChosenSeed.mCrazyDavePicked)
+		if (aMouseChosenSeed.mSeedState == SEED_IN_BANK && pvzu::engine::DavePickLocks(aMouseChosenSeed.mCrazyDavePicked)) // PVZU: 戴夫不选卡 frees it (hook 447)
 			aMouseSeedType = SEED_NONE;
 	}
 
@@ -514,13 +539,13 @@ void SeedChooserScreen::Update()
 {
 	Widget::Update();
 
-	mLastMouseX = mApp->mWidgetManager->mLastMouseX;
+	mLastMouseX = pvzu::ChooserMouseX(mApp->mWidgetManager->mLastMouseX, pvzu::CurrentLayout()); // PVZU: chooser-local (it sits right of the safe inset)
 	mLastMouseY = mApp->mWidgetManager->mLastMouseY;
 
 	mSeedChooserAge++;
 	mToolTip->Update();
 
-	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEEDS_IN_CHOOSER; aSeedType = (SeedType)(aSeedType + 1))
+	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < pvzu::engine::ChooserSeedEnd(); aSeedType = (SeedType)(aSeedType + 1)) // PVZU: + CARD seeds
 	{
 		if (mApp->HasSeedType(aSeedType))
 		{
@@ -540,6 +565,7 @@ void SeedChooserScreen::Update()
 	}
 
 	ShowToolTip();
+	pvzu::engine::ChooserHoldUpdate(this); // PVZU: touch hold-for-info panel
 	mStartButton->Update();
 	mRandomButton->Update();
 	mViewLawnButton->Update();
@@ -547,6 +573,7 @@ void SeedChooserScreen::Update()
 	mImitaterButton->Update();
 	mStoreButton->Update();
 	mMenuButton->Update();
+	pvzu::engine::OptionsMenuPoll(mApp, this, mMenuButton->IsMouseOver()); // PVZU: long press on Menu -> Unnamed options
 	UpdateViewLawn();
 	UpdateCursor();
 	MarkDirty();
@@ -714,7 +741,7 @@ void SeedChooserScreen::PickRandomSeeds()
 		aChosenSeed.mSeedIndexInBank = anIndex;
 		mSeedsInBank++;
 	}
-	for (SeedType aSeedFlying = SEED_PEASHOOTER; aSeedFlying < NUM_SEEDS_IN_CHOOSER; aSeedFlying = (SeedType)(aSeedFlying + 1))
+	for (SeedType aSeedFlying = SEED_PEASHOOTER; aSeedFlying < pvzu::engine::ChooserSeedEnd(); aSeedFlying = (SeedType)(aSeedFlying + 1)) // PVZU: + CARD seeds
 		LandFlyingSeed(mChosenSeeds[aSeedFlying]);
 	CloseSeedChooser();
 }
@@ -767,7 +794,7 @@ SeedType SeedChooserScreen::SeedHitTest(int x, int y)
 {
 	if (mMouseVisible)
 	{
-		for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEEDS_IN_CHOOSER; aSeedType = (SeedType)(aSeedType + 1))
+		for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < pvzu::engine::ChooserSeedEnd(); aSeedType = (SeedType)(aSeedType + 1)) // PVZU: + CARD seeds
 		{
 			ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
 			if (!mApp->HasSeedType(aSeedType) || aChosenSeed.mSeedState == SEED_PACKET_HIDDEN) continue;
@@ -779,7 +806,7 @@ SeedType SeedChooserScreen::SeedHitTest(int x, int y)
 
 SeedType SeedChooserScreen::FindSeedInBank(int theIndexInBank)
 {
-	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEEDS_IN_CHOOSER; aSeedType = (SeedType)(aSeedType + 1))
+	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < pvzu::engine::ChooserSeedEnd(); aSeedType = (SeedType)(aSeedType + 1)) // PVZU: + CARD seeds
 	{
 		if (mApp->HasSeedType(aSeedType))
 		{
@@ -887,7 +914,7 @@ void SeedChooserScreen::ShowToolTip()
 				{
 					mToolTip->SetWarningText("[FULL_VERSION_ONLY]");
 				}
-				else if (aChosenSeed.mSeedState == SEED_IN_BANK && aChosenSeed.mCrazyDavePicked)
+				else if (aChosenSeed.mSeedState == SEED_IN_BANK && pvzu::engine::DavePickLocks(aChosenSeed.mCrazyDavePicked)) // PVZU: hook 447
 				{
 					mToolTip->SetWarningText("[CRAZY_DAVE_WANTS]");
 				}
@@ -950,6 +977,9 @@ void SeedChooserScreen::CancelLawnView()
 
 void SeedChooserScreen::MouseUp([[maybe_unused]] int x, [[maybe_unused]] int y, int theClickCount)
 {
+	if (pvzu::engine::OptionsMenuUp()) // PVZU: the release of a long press on Menu (it opened the Unnamed options)
+		return;
+	pvzu::engine::ChooserHoldUp(this, x, y); // PVZU: touch: a quick tap picks on the lift (vanilla's press replayed), a hold changes nothing
 	if (theClickCount == 1)
 	{
 		if (mMenuButton->IsMouseOver()) ButtonDepress(SeedChooserScreen::SeedChooserScreen_Menu);
@@ -976,10 +1006,14 @@ void SeedChooserScreen::UpdateImitaterButton()
 void SeedChooserScreen::MouseDown(int x, int y, int theClickCount)
 {
 	Widget::MouseDown(x, y, theClickCount);
+	if (theClickCount == -1 && pvzu::engine::OptionsMenuDown(mApp, this, theClickCount)) // PVZU: right click: Unnamed options (hook 457)
+		return;
+	if (pvzu::engine::ModModeChooserClick(this, x, y)) // PVZU: mod mode 0x92 "Zombie Sea" box (hook 469)
+		return;
 
 	if (mSeedsInFlight > 0)
 	{
-		for (int i = 0; i < NUM_SEEDS_IN_CHOOSER; i++)
+		for (int i = 0; i < pvzu::engine::ChooserSeedEnd(); i++) // PVZU: + CARD seeds
 		{
 			LandFlyingSeed(mChosenSeeds[i]);
 		}
@@ -1001,6 +1035,7 @@ void SeedChooserScreen::MouseDown(int x, int y, int theClickCount)
 	}
 	else if (mMenuButton->IsMouseOver())
 	{
+		pvzu::engine::OptionsMenuDown(mApp, this, theClickCount); // PVZU: starts the long-press count (Unnamed options)
 		mApp->PlaySample(Sexy::SOUND_GRAVEBUTTON);
 	}
 	else if (mStartButton->IsMouseOver() || mAlmanacButton->IsMouseOver() || mStoreButton->IsMouseOver())
@@ -1020,7 +1055,7 @@ void SeedChooserScreen::MouseDown(int x, int y, int theClickCount)
 	}
 	else
 	{
-		if (!mBoard->mSeedBank->ContainsPoint(x, y) && !mAlmanacButton->IsMouseOver() && !mStoreButton->IsMouseOver() && mApp->CanShowAlmanac())
+		if (!mBoard->mSeedBank->ContainsPoint(x + mX - pvzu::engine::Camera(mBoard).rest, y) /* PVZU: bank x is board-rest relative */ && !mAlmanacButton->IsMouseOver() && !mStoreButton->IsMouseOver() && mApp->CanShowAlmanac())
 		{
 			Zombie* aZombie = mBoard->ZombieHitTest(x - mBoard->mX, y - mBoard->mY);
 			if (aZombie && aZombie->mFromWave == Zombie::ZOMBIE_WAVE_CUTSCENE && aZombie->mZombieType != ZOMBIE_REDEYE_GARGANTUAR)
@@ -1033,6 +1068,8 @@ void SeedChooserScreen::MouseDown(int x, int y, int theClickCount)
 		}
 
 		SeedType aSeedType = SeedHitTest(x, y);
+		if (pvzu::engine::ChooserHoldDown(this, aSeedType, x, y, theClickCount)) // PVZU: touch on a packet: decided on the lift (tap or hold-for-info)
+			return;
 		if (aSeedType != SEED_NONE && !SeedNotAllowedToPick(aSeedType))
 		{
 			if (SeedNotAllowedDuringTrial(aSeedType))
@@ -1055,7 +1092,7 @@ void SeedChooserScreen::MouseDown(int x, int y, int theClickCount)
 				ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
 				if (aChosenSeed.mSeedState == SEED_IN_BANK)
 				{
-					if (aChosenSeed.mCrazyDavePicked)
+					if (pvzu::engine::DavePickLocks(aChosenSeed.mCrazyDavePicked)) // PVZU: 戴夫不选卡 frees it on the tap too (hook 447; touch has no hover)
 					{
 						mApp->PlaySample(Sexy::SOUND_BUZZER);
 						mToolTip->FlashWarning();
@@ -1071,7 +1108,7 @@ void SeedChooserScreen::MouseDown(int x, int y, int theClickCount)
 
 bool SeedChooserScreen::PickedPlantType(SeedType theSeedType)
 {
-	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEEDS_IN_CHOOSER; aSeedType = (SeedType)(aSeedType + 1))
+	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < pvzu::engine::ChooserSeedEnd(); aSeedType = (SeedType)(aSeedType + 1)) // PVZU: + CARD seeds
 	{
 		ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
 		if (aChosenSeed.mSeedState == SEED_IN_BANK)
@@ -1102,6 +1139,8 @@ void SeedChooserScreen::CloseSeedChooser()
 			aSeedPacket.mActive = false;
 		}
 	}
+	pvzu::engine::ModModeChooserClosed(mBoard); // PVZU: mod modes 0x6d/0x72/0x73/0x91 (hook 462, 0x798fdf)
+	pvzu::engine::SpecialChooserClosed(mBoard); // PVZU: 7-5 / mode 0x89 star snake and bank (hook 462, 0x7a2230)
 	mBoard->mCutScene->EndSeedChooser();
 }
 
@@ -1126,7 +1165,7 @@ void SeedChooserScreen::KeyChar(char theChar)
 
 void SeedChooserScreen::UpdateAfterPurchase()
 {
-	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < NUM_SEEDS_IN_CHOOSER; aSeedType = (SeedType)(aSeedType + 1))
+	for (SeedType aSeedType = SEED_PEASHOOTER; aSeedType < pvzu::engine::ChooserSeedEnd(); aSeedType = (SeedType)(aSeedType + 1)) // PVZU: + CARD seeds
 	{
 		ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
 		if (aChosenSeed.mSeedState == SEED_IN_BANK)

@@ -68,6 +68,14 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/btn_pick_dir"
+            android:layout_marginBottom="8dp" />
+
+        <!-- PVZU: Unnamed mode art/sound/text from the player's own Unnamed zip -->
+        <Button
+            android:id="@+id/btn_pick_unnamed_zip"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_pick_unnamed_zip"
             android:layout_marginBottom="24dp" />
 
         <!-- Save data section -->

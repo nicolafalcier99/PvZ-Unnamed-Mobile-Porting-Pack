@@ -25,6 +25,7 @@
 #include <cstdint>
 #include "../ConstEnums.h"
 #include "GameObject.h"
+#include "Mod/Unnamed/State.h" // PVZU
 
 class Plant;
 class Zombie;
@@ -73,6 +74,7 @@ public:
 	int32_t                 mCobTargetRow;
 	ZombieID                mTargetZombieID;
 	int32_t                 mLastPortalX;
+	pvzu::unnamed::ProjectileState mPvzu{}; // PVZU: Unnamed per-projectile state (fire tier; zero in vanilla)
 
 public:
 	Projectile();

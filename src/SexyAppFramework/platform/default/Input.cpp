@@ -19,6 +19,8 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Engine/DebugHooks.h" // PVZU
+#include "Mod/Touch.h" // PVZU
 #include <SDL3/SDL.h>
 
 #include <algorithm>
@@ -582,6 +584,9 @@ bool SexyAppBase::ProcessDeferredMessages(bool singleMessage)
 	SDL_Event event;
 	if (SDL_PollEvent(&event))
 	{
+		if (pvzu::engine::DebugRunIgnoresEvent(event)) // PVZU: scripted checks see only scripted input, never focus changes
+			return SDL_HasEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
+
 		if ((mRecordingDemoBuffer) && (!mShutdown))
 			RecordDemoEvent(this, event);
 
@@ -683,6 +688,8 @@ bool SexyAppBase::ProcessDeferredMessages(bool singleMessage)
 				int x = static_cast<int>(event.motion.x);
 				int y = static_cast<int>(event.motion.y);
 				mWidgetManager->RemapMouse(x, y);
+				pvzu::NotePointer(event.motion.which == SDL_TOUCH_MOUSEID ? pvzu::PointerSource::Finger : // PVZU: follow-the-pointer modes
+					event.motion.which == SDL_PEN_MOUSEID ? pvzu::PointerSource::Pen : pvzu::PointerSource::Mouse);
 
 				mLastUserInputTick = mLastTimerTime;
 
@@ -698,6 +705,8 @@ bool SexyAppBase::ProcessDeferredMessages(bool singleMessage)
 				int x = static_cast<int>(event.button.x);
 				int y = static_cast<int>(event.button.y);
 				mWidgetManager->RemapMouse(x, y);
+				pvzu::NotePointer(event.button.which == SDL_TOUCH_MOUSEID ? pvzu::PointerSource::Finger : // PVZU: follow-the-pointer modes
+					event.button.which == SDL_PEN_MOUSEID ? pvzu::PointerSource::Pen : pvzu::PointerSource::Mouse);
 
 				mLastUserInputTick = mLastTimerTime;
 
@@ -731,6 +740,19 @@ bool SexyAppBase::ProcessDeferredMessages(bool singleMessage)
 					3;
 
 				mWidgetManager->MouseUp(x, y, btn);
+				if (pvzu::HoverEndsOnLift(event.button.which == SDL_TOUCH_MOUSEID ? pvzu::PointerSource::Finger :
+						event.button.which == SDL_PEN_MOUSEID ? pvzu::PointerSource::Pen : pvzu::PointerSource::Mouse))
+				{
+					// PVZU: a finger (or S Pen tip) lifted. On the S26: "when I press something it stays pressed", and
+					// the hover tooltip stayed - SDL leaves the touch's virtual mouse where the finger was, so buttons
+					// stay highlighted. Leave the window (as a mouse would) right after the release; recorded like any
+					// leave event.
+					SDL_Event aLeave{};
+					aLeave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
+					aLeave.window.windowID = event.button.windowID;
+					aLeave.window.data1 = static_cast<Sint32>(pvzu::engine::kTouchLiftLeave); // PVZU: scripted checks let it pass
+					SDL_PushEvent(&aLeave);
+				}
 				break;
 			}
 

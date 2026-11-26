@@ -19,6 +19,7 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Layout.h" // PVZU
 #include "../Resources.h"
 #include "ToolTipWidget.h"
 #include "../GameConstants.h"
@@ -189,9 +190,9 @@ void ToolTipWidget::Draw(Graphics* g)
 	{
 		aPosX = mMinLeft - static_cast<int>(g->mTransX);
 	}
-	else if (aPosX + mWidth + g->mTransX > BOARD_WIDTH)
+	else if (aPosX + mWidth + g->mTransX > pvzu::CurrentLayout().width) // PVZU: keep on the wide screen
 	{
-		aPosX = BOARD_WIDTH - g->mTransX - mWidth;
+		aPosX = pvzu::CurrentLayout().width - g->mTransX - mWidth;
 	}
 
 	int aPosY = mY;

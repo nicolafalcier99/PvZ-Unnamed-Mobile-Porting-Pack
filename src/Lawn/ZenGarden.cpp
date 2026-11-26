@@ -40,6 +40,9 @@
 #include "../PvzpLib/EffectSystem.h"
 #include "graphics/Graphics.h"
 #include "../PvzpLib/PvzpStringFile.h"
+#include "Mod/Engine/ModesVanilla.h" // PVZU
+#include "Mod/Engine/OptionsPanel.h" // PVZU
+#include "Mod/Engine/ModModes.h" // PVZU: mod item modes
 
 constexpr const float STINKY_SLEEP_POS_Y = 461.0f;
 
@@ -1104,7 +1107,7 @@ void ZenGarden::MouseDownWithTool(int x, int y, CursorType theCursorType)
 	}
 
 	Plant* aPlant = mBoard->ToolHitTest(x, y);
-	if (aPlant == nullptr || aPlant->mPottedPlantIndex == -1)
+	if (aPlant == nullptr || (aPlant->mPottedPlantIndex == -1 && !pvzu::engine::ModModeItemMode(mApp))) // PVZU: item modes take lawn plants (the exe tests -100)
 	{
 		mApp->PlayFoley(FoleyType::FOLEY_DROP);
 		mBoard->ClearCursor();
@@ -1122,6 +1125,8 @@ void ZenGarden::MouseDownWithTool(int x, int y, CursorType theCursorType)
 	}
 	else if (theCursorType == CursorType::CURSOR_TYPE_GLOVE)
 	{
+		if (!pvzu::engine::ModesGloveCanPickUp(aPlant)) // PVZU: Unnamed leaves a Squash that is not idle (hook 478)
+			return;
 		mBoard->mCursorObject->mType = aPlant->mSeedType;
 		mBoard->mCursorObject->mImitaterType = aPlant->mImitaterType;
 		mBoard->mCursorObject->mCursorType = CursorType::CURSOR_TYPE_PLANT_FROM_GLOVE;
@@ -1133,7 +1138,7 @@ void ZenGarden::MouseDownWithTool(int x, int y, CursorType theCursorType)
 
 void ZenGarden::MovePlant(Plant* thePlant, int theGridX, int theGridY)
 {
-	if (mApp->mGameMode != GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN)
+	if (mApp->mGameMode != GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN && !pvzu::engine::ModModeItemMode(mApp)) // PVZU: item modes move lawn plants
 	{
 		return;
 	}
@@ -1168,14 +1173,18 @@ void ZenGarden::MovePlant(Plant* thePlant, int theGridX, int theGridY)
 		aParticle->SystemMove(aEmitter->mSystemCenter.x + aDeltaX, aEmitter->mSystemCenter.y + aDeltaY);
 	}
 
-	PottedPlant* aPottedPlant = PottedPlantFromIndex(thePlant->mPottedPlantIndex);
-	aPottedPlant->mX = theGridX;
-	aPottedPlant->mY = theGridY;
+	if (thePlant->mPottedPlantIndex >= 0) // PVZU: a lawn plant (item modes) has no potted-plant record; the exe writes one anyway
+	{
+		PottedPlant* aPottedPlant = PottedPlantFromIndex(thePlant->mPottedPlantIndex);
+		aPottedPlant->mX = theGridX;
+		aPottedPlant->mY = theGridY;
+	}
 	if (thePlant->mState == PlantState::STATE_ZEN_GARDEN_HAPPY)
 	{
 		RemoveHappyEffect(thePlant);
 		AddHappyEffect(thePlant);
 	}
+	pvzu::engine::ModModeGloveMoved(thePlant); // PVZU: item modes' render order (hook 479)
 
 	if (aTopPlantAtGrid)
 	{

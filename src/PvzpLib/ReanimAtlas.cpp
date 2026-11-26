@@ -27,6 +27,7 @@
 #include "misc/PerfTimer.h"
 #include "graphics/Graphics.h"
 #include "graphics/MemoryImage.h"
+#include "Mod/Engine/HdTextures.h" // PVZU
 
 ReanimAtlas::ReanimAtlas() = default;
 
@@ -248,4 +249,13 @@ void ReanimAtlas::ReanimAtlasCreate(ReanimatorDefinition* theReanimDef)
 		aMemoryGraphis.DrawImage(aImage->mOriginalImage, aImage->mX, aImage->mY);
 	}
 	FixPixelsOnAlphaEdgeForBlending(mMemoryImage.get());  // set transparent pixels to the average color of their neighbors
+
+	// PVZU: HD art: the same atlas from the parts' HD twins (Mod/Engine/HdTextures.h).
+	if (pvzu::hd::Active())
+	{
+		std::vector<pvzu::hd::AtlasPart> aParts;
+		for (const ReanimAtlasImage& aImage : mImageArray)
+			aParts.push_back({aImage.mOriginalImage, aImage.mX, aImage.mY, aImage.mWidth, aImage.mHeight});
+		pvzu::hd::OnAtlasCreated(mMemoryImage.get(), aParts);
+	}
 }

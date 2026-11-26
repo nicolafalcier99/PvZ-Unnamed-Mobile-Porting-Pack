@@ -19,6 +19,26 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Engine/EngineTables.h" // PVZU
+#include "Mod/Engine/TestCheats.h" // PVZU Plan 9 C1
+#include "Mod/Engine/ModModes.h" // PVZU: mod-only modes 0x65..0x94
+#include "Mod/Engine/NightEliteZombies.h" // PVZU
+#include "Mod/Engine/EliteZombies.h" // PVZU: glove Pole leap (Plan 9 V1)
+#include "Mod/Engine/EliteGaps.h" // PVZU Plan 9 R4
+#include "Mod/Engine/PoolEliteZombies.h" // PVZU
+#include "Mod/Engine/FogEliteZombies.h" // PVZU
+#include "Mod/Unnamed/DayPlants.h" // PVZU
+#include "Mod/Unnamed/NightPlants.h" // PVZU
+#include "Mod/Unnamed/PoolPlants.h" // PVZU
+#include "Mod/Engine/PoolPlantSites.h" // PVZU
+#include "Mod/Unnamed/FogPlants.h" // PVZU
+#include "Mod/Engine/FogPlantSites.h" // PVZU
+#include "Mod/Engine/ZombossSites.h" // PVZU
+#include "Mod/Unnamed/RoofPlants.h" // PVZU
+#include "Mod/Engine/RoofPlantSites.h" // PVZU
+#include "Mod/Engine/ModesVanilla.h" // PVZU
+#include "Mod/Engine/World7EliteZombies.h" // PVZU: Tree of Wisdom plant HP (Plan 7 Task 2)
+#include <format> // PVZU
 #include "Coin.h"
 #include "Plant.h"
 #include "Board.h"
@@ -42,6 +62,13 @@
 #include "../PvzpLib/EffectSystem.h"
 #include "../PvzpLib/PvzpStringFile.h"
 #include "Widget/AchievementsScreen.h"
+#include "Mod/Engine/ModPlants.h" // PVZU: mod-only plants (Plan 8)
+#include "Mod/Engine/ModPlantSites.h" // PVZU
+#include "Mod/Engine/ModAlmanac.h" // PVZU: mod-plant hints (feature modAlmanac)
+#include "Mod/Engine/ModPlantsSpecials.h" // PVZU Plan 8 part 3b: special mod plants
+#include "Mod/Engine/ModPlantsShooters.h" // PVZU: shooter mod plants (Plan 8 part 3a)
+#include "Mod/Engine/ModPlantsShadow.h" // PVZU: Charmed Tall-nut regeneration (Plan 8 part 3c)
+#include "Mod/Engine/HiddenLevels.h" // PVZU: V2 8-2 plant drain
 #include <algorithm>
 #include <format>
 
@@ -103,10 +130,22 @@ constinit const PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES] = {
 
 Plant::Plant()
 {
+	if (pvzu::engine::ModModeObjectsInvisible(mApp)) // PVZU: V2 mod mode 0x8a hides plants only (hook 2 is in Plant::Plant)
+		mVisible = false;
+}
+
+// PVZU: one line per triggered Unnamed Day-plant ability (-pvzu-log-plants <file>).
+static void PvzuLogPlant(const Plant* thePlant, std::string_view theText)
+{
+	pvzu::unnamed::LogPlantAbility(thePlant->mBoard ? static_cast<int>(thePlant->mBoard->mMainCounter) : -1,
+		std::format("{} col {} row {}: {}", GetPlantDefinition(thePlant->mSeedType).mPlantName, thePlant->mPlantCol, thePlant->mRow, theText));
 }
 
 void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, SeedType theImitaterType)
 {
+	mPvzu = {}; // PVZU
+	if (theSeedType == SeedType::SEED_SPLITPEA) // PVZU: V2 a planted Split Pea sweeps at once (+0xEC = 0 by the memset)
+		mPvzu.sweepTimer = pvzu::unnamed::SplitPeaInitialSweepTimer();
 	mPlantCol = theGridX;
 	mRow = theGridY;
 	if (mBoard)
@@ -305,7 +344,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 		break;
 	case SeedType::SEED_GARLIC:
 		PVZP_ASSERT(aBodyReanim);
-		mPlantHealth = 400;
+		mPlantHealth = pvzu::unnamed::GarlicHp(400); // PVZU: Unnamed 900 (PlantInitialize rewrite, Roof study 1.5)
 		aBodyReanim->SetTruncateDisappearingFrames();
 		break;
 	case SeedType::SEED_GOLD_MAGNET:
@@ -344,6 +383,11 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 		{
 			aBodyReanim->AssignRenderGroupToTrack("anim_glow", RENDER_GROUP_HIDDEN);
 			mStateCountdown = 1500;
+			if (pvzu::unnamed::DayPlantsOn()) // PVZU: Unnamed mines need no arming time (study 5a)
+			{
+				mStateCountdown = pvzu::unnamed::PotatoMineArmingCs();
+				PvzuLogPlant(this, std::format("potatoMine.arming {} cs", mStateCountdown));
+			}
 		}
 		else
 		{
@@ -385,7 +429,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 			aBodyReanim->SetFramesForLayer("anim_bigidle");
 
 		mState = PlantState::STATE_SUNSHROOM_SMALL;
-		mStateCountdown = 12000;
+		mStateCountdown = IsInPlay() ? pvzu::unnamed::SunShroomGrowCs() : 12000; // PVZU: Unnamed grows in 9000 cs in play (hook 267)
 
 		break;
 	}
@@ -489,6 +533,9 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 	{
 		mPlantHealth *= 2;
 	}
+	if (mSeedType == SeedType::SEED_SCAREDYSHROOM)
+		mPlantHealth = pvzu::unnamed::ScaredyHp(); // PVZU: Unnamed Scaredy-shroom 1500 HP (.text cave 0x65198A)
+	mPlantHealth = pvzu::engine::World7PlantHp(this, mPlantHealth); // PVZU: Tree of Wisdom > 100 ft, up to x3 (hook 268)
 	mPlantMaxHealth = mPlantHealth;
 
 	if (mSeedType != SeedType::SEED_FLOWERPOT && IsOnBoard())
@@ -709,8 +756,26 @@ void Plant::DoRowAreaDamage(int theDamage, unsigned int theDamageFlags)
 					}
 				}
 
-				aZombie->TakeDamage(aDamage, theDamageFlags);
+				if (!pvzu::engine::ModModeRowDamage(this, aZombie, aDamage, theDamageFlags)) // PVZU: mod mode 0x8e (hook 275)
+					aZombie->TakeDamage(aDamage, theDamageFlags);
+				// PVZU: Unnamed Spikeweed / Spikerock hit: Rand(3) != 1 (2/3) butters the zombie for 30 cs (hook 276)
+				if (pvzu::unnamed::PoolPlantsOn() && pvzu::unnamed::SpikeweedStunEligible(mSeedType, aZombie->mHasHead, aZombie->mButteredCounter, aZombie->mZombiePhase))
+				{
+					const int aRoll = Sexy::Rand(pvzu::unnamed::SpikeweedStunRollRange());
+					if (pvzu::unnamed::SpikeweedStuns(aRoll))
+					{
+						aZombie->ApplyButter();
+						aZombie->mButteredCounter = pvzu::unnamed::SpikeweedStunCs();
+						PvzuLogPlant(this, std::format("spikeweed.stun zombie type {} roll {} butter {} cs", static_cast<int>(aZombie->mZombieType), aRoll, aZombie->mButteredCounter));
+					}
+					else
+						PvzuLogPlant(this, std::format("spikeweed.noStun roll {}", aRoll));
+				}
 				mApp->PlayFoley(FoleyType::FOLEY_SPLAT);
+				// PVZU: dev log of a fume hit the vanilla 340 px rect would have missed (-pvzu-log-plants)
+				if (mSeedType == SeedType::SEED_FUMESHROOM && pvzu::unnamed::NightPlantsOn() &&
+					GetRectOverlap(Rect(aAttackRect.mX, aAttackRect.mY, 340, aAttackRect.mHeight), aZombieRect) <= 0)
+					PvzuLogPlant(this, std::format("fume.wholeLaneHit zombie x {} (vanilla reach ends at {})", aZombieRect.mX, aAttackRect.mX + 340));
 			}
 		}
 	}
@@ -732,6 +797,8 @@ PvzpParticleSystem* Plant::AddAttachedParticle(int thePosX, int thePosY, int the
 bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
 {
 	Zombie* aZombie = FindTargetZombie(theRow, thePlantWeapon);
+	if (aZombie == nullptr && mPvzu.modSeed != 0) // PVZU: a shadowed Dusk-pult also looks at rows +1 / -1 (hook 279)
+		aZombie = pvzu::engine::ShooterExtraTarget(this, theRow, static_cast<int>(thePlantWeapon));
 	if (aZombie == nullptr)
 		return false;
 
@@ -814,6 +881,7 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
 	else
 		Fire(aZombie, theRow, thePlantWeapon);
 
+	pvzu::engine::FogCactusShotAnim(this); // PVZU: Unnamed every Cactus shot: anim 45, shooting counter 23 (hook 282)
 	return true;
 }
 
@@ -858,6 +926,8 @@ void Plant::LaunchThreepeater()
 bool Plant::FindStarFruitTarget()
 {
 	if (mRecentlyEatenCountdown > 0)
+		return true;
+	if (mPvzu.modSeed != 0 && pvzu::engine::ShooterStarfruitAlwaysTargets(this)) // PVZU: shadowed Dream Starfruit (hook 284)
 		return true;
 
 	int aDamageRangeFlags = GetDamageRangeFlags(PlantWeapon::WEAPON_PRIMARY);
@@ -939,7 +1009,9 @@ void Plant::StarFruitFire()
 		case 4:     aProjectile->mVelX = aShootAngleX;  aProjectile->mVelY = -aShootAngleY;     break;
 		default:    PVZP_ASSERT(false);                                                               break;
 		}
+		pvzu::engine::FogStarfruitStar(aProjectile); // PVZU: Unnamed stars x1.5 (hook 286)
 	}
+	pvzu::engine::FogStarfruitVolleyDone(this); // PVZU: Unnamed 1/3 extra-star roll (hook 287)
 }
 
 void Plant::UpdateShooter()
@@ -947,7 +1019,7 @@ void Plant::UpdateShooter()
 	mLaunchCounter--;
 	if (mLaunchCounter <= 0)
 	{
-		mLaunchCounter = mLaunchRate - Sexy::Rand(15);
+		mLaunchCounter = pvzu::engine::FogShooterLaunchCounter(this, Sexy::Rand(15)); // PVZU: Unnamed Plantern 3x3 x2 (cave 0x651670); vanilla mLaunchRate - Rand(15)
 
 		if (mSeedType == SeedType::SEED_THREEPEATER)
 		{
@@ -992,6 +1064,15 @@ void Plant::UpdateShooter()
 		else if (mSeedType == SeedType::SEED_SPLITPEA)
 		{
 			FindTargetAndFire(mRow, PlantWeapon::WEAPON_SECONDARY);
+		}
+		else if (mSeedType == SeedType::SEED_SCAREDYSHROOM && pvzu::unnamed::ScaredySecondShot(mLaunchCounter)) // PVZU: Unnamed second spore like the Repeater (hook 290)
+		{
+			if (FindTargetAndFire(mRow, PlantWeapon::WEAPON_PRIMARY))
+				PvzuLogPlant(this, "scaredy.secondSpore");
+		}
+		else if (mSeedType == SeedType::SEED_CACTUS) // PVZU: Unnamed Cactus second volley (hook 290)
+		{
+			pvzu::engine::FogCactusSecondVolley(this);
 		}
 	}
 }
@@ -1044,10 +1125,23 @@ void Plant::UpdateProductionPlant()
 			{
 				mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
 			}
+			// PVZU: Unnamed grown Sun-shroom, 12% extra small sun (hook 293; the roll is only drawn when grown)
+			if (mState != PlantState::STATE_SUNSHROOM_SMALL && pvzu::unnamed::NightPlantsOn() &&
+				pvzu::unnamed::SunShroomBonusSun(false, Sexy::Rand(pvzu::unnamed::SunShroomBonusRollRange())))
+			{
+				mBoard->AddCoin(mX, mY, CoinType::COIN_SMALLSUN, CoinMotion::COIN_MOTION_FROM_PLANT);
+				PvzuLogPlant(this, "sunshroom.bonusSmallSun");
+			}
 		}
 		else if (mSeedType == SeedType::SEED_SUNFLOWER)
 		{
 			mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
+			// PVZU: Unnamed Sunflower, 12% extra small sun (study 2)
+			if (pvzu::unnamed::DayPlantsOn() && pvzu::unnamed::SunflowerBonusSun(Sexy::Rand(pvzu::unnamed::SunflowerBonusRollRange())))
+			{
+				mBoard->AddCoin(mX, mY, CoinType::COIN_SMALLSUN, CoinMotion::COIN_MOTION_FROM_PLANT);
+				PvzuLogPlant(this, "sunflower.bonusSmallSun");
+			}
 		}
 		else if (mSeedType == SeedType::SEED_TWINSUNFLOWER)
 		{
@@ -1056,7 +1150,8 @@ void Plant::UpdateProductionPlant()
 		}
 		else if (mSeedType == SeedType::SEED_MARIGOLD)
 		{
-			mBoard->AddCoin(mX, mY, (Sexy::Rand(100) < 10) ? CoinType::COIN_GOLD : CoinType::COIN_SILVER, CoinMotion::COIN_MOTION_COIN);
+			if (!pvzu::engine::RoofMarigoldPulse(this)) // PVZU: Unnamed no coin: one shrink pulse, then it dies (patch 0x45fafa)
+				mBoard->AddCoin(mX, mY, (Sexy::Rand(100) < 10) ? CoinType::COIN_GOLD : CoinType::COIN_SILVER, CoinMotion::COIN_MOTION_COIN);
 		}
 
 		if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BIG_TIME)
@@ -1082,6 +1177,8 @@ void Plant::UpdateSunShroom()
 		{
 			PlayBodyReanim("anim_grow", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 10, 12.0f);
 			mState = PlantState::STATE_SUNSHROOM_GROWING;
+			if (pvzu::unnamed::NightPlantsOn()) // PVZU: dev log (growth time 9000 cs, hook 267)
+				PvzuLogPlant(this, std::format("sunshroom.grows after {} cs", pvzu::unnamed::SunShroomGrowCs()));
 			mApp->PlayFoley(FoleyType::FOLEY_PLANTGROW);
 		}
 
@@ -1124,7 +1221,17 @@ void Plant::UpdateGraveBuster()
 
 		mApp->AddPvzpParticle(mX + 40, mY + 80, mRenderOrder + 4, ParticleEffect::PARTICLE_GRAVE_BUSTER_DIE);
 		Die();
-		mBoard->DropLootPiece(mX + 40, mY, 12);
+		// PVZU: Unnamed refund after the grave's loot coin (hook 152 hooks that last AddCoin, so no coin = no refund):
+		// a large sun (50), then Rand(3) == 1 one more sun (25)
+		if (mBoard->DropLootPiece(mX + 40, mY, 12) && pvzu::unnamed::GraveBusterRefunds())
+		{
+			mBoard->AddCoin(mX, mY, static_cast<CoinType>(pvzu::unnamed::GraveBusterRefundCoin()), CoinMotion::COIN_MOTION_FROM_PLANT);
+			const bool aBonus = pvzu::unnamed::GraveBusterBonusSun(Sexy::Rand(pvzu::unnamed::GraveBusterBonusRollRange()));
+			if (aBonus)
+				mBoard->AddCoin(mX, mY, static_cast<CoinType>(pvzu::unnamed::GraveBusterBonusCoin()), CoinMotion::COIN_MOTION_COIN);
+			PvzuLogPlant(this, std::format("graveBuster.refund coin {} bonus {}", pvzu::unnamed::GraveBusterRefundCoin(),
+				aBonus ? pvzu::unnamed::GraveBusterBonusCoin() : 0));
+		}
 	}
 }
 
@@ -1253,7 +1360,18 @@ void Plant::UpdateTanglekelp()
 
 		if (mStateCountdown == 0)
 		{
-			Die();
+			// PVZU: Unnamed Tangle Kelp drags three zombies, ready again after each one (hook 294)
+			if (pvzu::unnamed::PoolPlantsOn() && pvzu::unnamed::TangleKelpReadyAgain(++mPvzu.counter))
+			{
+				mState = PlantState::STATE_NOTREADY;
+				pvzu::engine::PoolLogPlant(this, std::format("tangle.dragDone {} of {}, ready again", mPvzu.counter, pvzu::unnamed::TangleKelpDrags()));
+			}
+			else
+			{
+				if (pvzu::unnamed::PoolPlantsOn())
+					pvzu::engine::PoolLogPlant(this, std::format("tangle.dragDone {} of {}, dies", mPvzu.counter, pvzu::unnamed::TangleKelpDrags()));
+				Die();
+			}
 
 			Zombie* aZombie = mBoard->ZombieTryToGet(mTargetZombieID);
 			if (aZombie)
@@ -1380,19 +1498,23 @@ void Plant::UpdateTorchwood()
 
 	for (Projectile* aProjectile : mBoard->mProjectiles)
 	{
-		if (aProjectile->mDead)
+		if (aProjectile->mDead || aProjectile->mPvzu.modType != 0) // PVZU: mod shots (0x16, 0x21..0x23) are not peas
 			continue;
-		if ((aProjectile->mRow == mRow) &&
-			(aProjectile->mProjectileType == ProjectileType::PROJECTILE_PEA || aProjectile->mProjectileType == ProjectileType::PROJECTILE_SNOWPEA))
+		// PVZU: Unnamed Torchwood also re-lights fireballs below tier 5 (hook 295, in place 0x460661); vanilla: pea / snow pea
+		const pvzu::unnamed::TorchAction aPvzuAction = pvzu::unnamed::TorchwoodAction(aProjectile->mProjectileType, aProjectile->mPvzu.fireTier);
+		if ((aProjectile->mRow == mRow) && aPvzuAction != pvzu::unnamed::TorchAction::None)
 		{
 			Rect aProjectileRect = aProjectile->GetProjectileRect();
 			if (GetRectOverlap(aAttackRect, aProjectileRect) >= 10)
 			{
-				if (aProjectile->mProjectileType == ProjectileType::PROJECTILE_PEA)
+				if (aPvzuAction == pvzu::unnamed::TorchAction::ToFireball)
 				{
+					const int aPvzuTier = aProjectile->mPvzu.fireTier;
 					aProjectile->ConvertToFireball(mPlantCol);
+					if (aProjectile->mPvzu.fireTier != aPvzuTier)
+						pvzu::engine::PoolLogPlant(this, std::format("torchwood.tier {} -> {}", aPvzuTier, aProjectile->mPvzu.fireTier));
 				}
-				else if (aProjectile->mProjectileType == ProjectileType::PROJECTILE_SNOWPEA)
+				else if (aPvzuAction == pvzu::unnamed::TorchAction::ToPea)
 				{
 					aProjectile->ConvertToPea(mPlantCol);
 				}
@@ -1415,6 +1537,7 @@ void Plant::DoSquashDamage()
 			Rect aZombieRect = aZombie->GetZombieRect();
 			if (GetRectOverlap(aAttackRect, aZombieRect) > (aZombie->mZombieType == ZombieType::ZOMBIE_FOOTBALL ? -20 : 0))
 			{
+				pvzu::engine::ModModeSquashHit(this, aZombie); // PVZU: mod modes 0x7f/0x90 (hook 296)
 				aZombie->TakeDamage(1800, 18U);
 			}
 		}
@@ -1451,7 +1574,7 @@ Zombie* Plant::FindSquashTarget()
 				))
 			{
 				int aRange = -GetRectOverlap(aAttackRect, aZombieRect);
-				if (aRange <= (aZombie->mIsEating ? 110 : 70))
+				if (aRange <= pvzu::unnamed::SquashReach(aZombie->mIsEating)) // PVZU: Unnamed 105 / 136 (in place 0x4608D6 / 0x4608E0)
 				{
 					int aPlantX = aAttackRect.mX;
 					if (aZombie->mZombiePhase == ZombiePhase::PHASE_POLEVAULTER_POST_VAULT || aZombie->mZombiePhase == ZombiePhase::PHASE_POLEVAULTER_PRE_VAULT ||
@@ -1545,7 +1668,9 @@ void Plant::UpdateSquash()
 
 			if (mStateCountdown == 5)
 			{
+				pvzu::engine::ModModeSquashSmash(this, true); // PVZU: mod modes 0x7f/0x90 count misses (hook 297)
 				DoSquashDamage();
+				pvzu::engine::ModModeSquashSmash(this, false);
 			}
 
 			if (mStateCountdown == 0)
@@ -1556,12 +1681,29 @@ void Plant::UpdateSquash()
 					mApp->PlayFoley(FoleyType::FOLEY_SPLAT);
 					mApp->PlaySample(SOUND_ZOMBIESPLASH);
 
+					pvzu::engine::PlantDeathCauseScope aPvzuCause(pvzu::unnamed::PlantDeathCause::POOL_SQUASH); // PVZU: hook 361
 					Die();
 				}
 				else
 				{
 					mState = PlantState::STATE_SQUASH_DONE_FALLING;
 					mStateCountdown = 100;
+					// PVZU: Unnamed 27%: a new Squash stands where this one landed, this one is hidden and goes (hook 298)
+					if (pvzu::unnamed::PoolPlantsOn())
+					{
+						const int aRoll = Sexy::Rand(pvzu::unnamed::SquashSurviveRollRange());
+						if (pvzu::unnamed::SquashSurvives(aRoll))
+						{
+							mVisible = false;
+							mStateCountdown = 1;
+							Plant* aNewSquash = mBoard->AddPlant(mX / 80, mRow, SeedType::SEED_SQUASH, SeedType::SEED_NONE);
+							aNewSquash->mX = mX;
+							aNewSquash->mY = mY;
+							pvzu::engine::PoolLogPlant(this, std::format("squash.survives roll {} (< 27): new Squash col {} at x {}", aRoll, aNewSquash->mPlantCol, mX));
+						}
+						else
+							pvzu::engine::PoolLogPlant(this, std::format("squash.gone roll {}", aRoll));
+					}
 
 					mBoard->ShakeBoard(1, 4);
 					mApp->PlayFoley(FoleyType::FOLEY_THUMP);
@@ -1775,6 +1917,13 @@ void Plant::UpdateChomper()
 				{
 					doBite = true;
 				}
+				// PVZU: Unnamed Chomper also only bites boss-class HP, a Newspaper without paper and Football (study 7a)
+				else if (pvzu::unnamed::DayPlantsOn() && pvzu::unnamed::ChomperRefusesSwallow(aZombie->mBodyMaxHealth,
+					aZombie->mZombieType == ZombieType::ZOMBIE_NEWSPAPER && aZombie->mShieldHealth == 0, aZombie->mZombieType == ZombieType::ZOMBIE_FOOTBALL))
+				{
+					doBite = true;
+					PvzuLogPlant(this, "chomper.refusesSwallow");
+				}
 			}
 			bool doMiss = false;
 			if (aZombie == nullptr)
@@ -1802,6 +1951,13 @@ void Plant::UpdateChomper()
 			}
 			else
 			{
+				if (pvzu::unnamed::DayPlantsOn()) // PVZU: Unnamed digest time and sun size from the eaten HP (study 7b, 7c)
+				{
+					int aEatenHp = aZombie->mBodyHealth + aZombie->mHelmHealth + aZombie->mShieldHealth;
+					mPvzu.counter = pvzu::unnamed::ChomperDigestCs(aEatenHp);
+					mPvzu.extra = pvzu::unnamed::ChomperSunCoin(aEatenHp);
+					PvzuLogPlant(this, std::format("chomper.swallow eatenHp {} digest {} cs sunCoin {}", aEatenHp, mPvzu.counter, mPvzu.extra));
+				}
 				aZombie->DieWithLoot();
 				mState = PlantState::STATE_CHOMPER_BITING_GOT_ONE;
 			}
@@ -1819,6 +1975,8 @@ void Plant::UpdateChomper()
 
 			mState = PlantState::STATE_CHOMPER_DIGESTING;
 			mStateCountdown = 4000;
+			if (pvzu::unnamed::DayPlantsOn() && mPvzu.counter > 0) // PVZU: Unnamed digest time (study 7b)
+				mStateCountdown = pvzu::unnamed::ChomperDigestCountdown(mPvzu.counter);
 		}
 	}
 	else if (mState == PlantState::STATE_CHOMPER_DIGESTING)
@@ -1831,6 +1989,25 @@ void Plant::UpdateChomper()
 	}
 	else if ((mState == PlantState::STATE_CHOMPER_SWALLOWING || mState == PlantState::STATE_CHOMPER_BITING_MISSED) && aBodyReanim->mLoopCount > 0)
 	{
+		if (pvzu::unnamed::DayPlantsOn()) // PVZU: Unnamed Chomper sun after digesting, Rand(5650) <= digest time (study 7c)
+		{
+			const int aRange = pvzu::unnamed::ChomperSunRollRange();
+			if (mState == PlantState::STATE_CHOMPER_SWALLOWING && aRange > 0 && mPvzu.extra >= CoinType::COIN_SUN && mPvzu.extra <= CoinType::COIN_LARGESUN)
+			{
+				const int aRoll = Sexy::Rand(aRange);
+				if (pvzu::unnamed::ChomperDropsSun(aRoll, mPvzu.counter))
+				{
+					mEatenFlashCountdown = pvzu::unnamed::ChomperSunFlashCs();
+					mBoard->AddCoin(mX, mY, static_cast<CoinType>(mPvzu.extra), CoinMotion::COIN_MOTION_FROM_PLANT);
+					PvzuLogPlant(this, std::format("chomper.sun coin {} (roll {} <= digest {})", mPvzu.extra, aRoll, mPvzu.counter));
+				}
+				else
+				{
+					PvzuLogPlant(this, std::format("chomper.noSun (roll {} > digest {})", aRoll, mPvzu.counter));
+				}
+			}
+			mPvzu.counter = 0;
+		}
 		PlayIdleAnim(aBodyReanim->mDefinition->mFPS);
 		mState = PlantState::STATE_READY;
 	}
@@ -1881,11 +2058,12 @@ void Plant::MagnetShroomAttactItem(Zombie* theZombie)
 	else if (theZombie->mHelmType == HelmType::HELMTYPE_FOOTBALL)
 	{
 		int aDamageIndex = theZombie->GetHelmDamageIndex();
+		const char* aPvzuHelmTrack = pvzu::engine::FootballHelmTrack(theZombie); // PVZU: anim_football on a non-Football (hook 697)
 
 		theZombie->mHelmHealth = 0;
 		theZombie->mHelmType = HelmType::HELMTYPE_NONE;
-		theZombie->GetTrackPosition("zombie_football_helmet", aMagnetItem->mPosX, aMagnetItem->mPosY);
-		theZombie->ReanimShowPrefix("zombie_football_helmet", RENDER_GROUP_HIDDEN);
+		theZombie->GetTrackPosition(aPvzuHelmTrack, aMagnetItem->mPosX, aMagnetItem->mPosY);
+		theZombie->ReanimShowPrefix(aPvzuHelmTrack, RENDER_GROUP_HIDDEN);
 		theZombie->ReanimShowPrefix("anim_hair", RENDER_GROUP_NORMAL);
 
 		aMagnetItem->mPosX += 37.0f;
@@ -2076,7 +2254,7 @@ void Plant::UpdateMagnetShroom()
 			if (aZombie->IsDeadOrDying())
 				continue;
 
-			if (aZombieRect.mX > BOARD_WIDTH || aDiffY > 2 || aDiffY < -2)
+			if (aZombieRect.mX > BOARD_WIDTH || (!pvzu::unnamed::MagnetAllRows() && (aDiffY > 2 || aDiffY < -2))) // PVZU: Unnamed every row (patch 0x4620a2)
 				continue;
 
 			if (aZombie->mZombiePhase == ZombiePhase::PHASE_DIGGER_TUNNELING ||
@@ -2095,7 +2273,7 @@ void Plant::UpdateMagnetShroom()
 				continue;
 
 			int aRadius = aZombie->mIsEating ? 320 : 270;
-			if (GetCircleRectOverlap(mX, mY + 20, aRadius, aZombieRect))
+			if (pvzu::unnamed::MagnetUnlimitedRadius() || GetCircleRectOverlap(mX, mY + 20, aRadius, aZombieRect)) // PVZU: Unnamed whole lawn (patch 0x462124)
 			{
 				float aDistance = Distance2D(mX, mY, aZombieRect.mX, aZombieRect.mY);
 				aDistance += abs(aDiffY) * 80.0f;
@@ -2110,6 +2288,7 @@ void Plant::UpdateMagnetShroom()
 
 		if (aClosestZombie)
 		{
+			pvzu::engine::FogMagnetPull(this, aClosestZombie); // PVZU: -pvzu-log-plants line
 			MagnetShroomAttactItem(aClosestZombie);
 			return;
 		}
@@ -2321,6 +2500,10 @@ void Plant::Squish()
 {
 	if (NotOnGround())
 		return;
+	if (mPvzu.modSeed != 0 && pvzu::engine::ModPlantUntouchable(this)) // PVZU: Rewind Grass is never squished (hook 302)
+		return;
+	if (pvzu::engine::TestCheatPlantSurvives(this)) // PVZU Plan 9 C1: invincible plants
+		return;
 
 	if (!mIsAsleep)
 	{
@@ -2361,6 +2544,7 @@ void Plant::Squish()
 void Plant::UpdateBowling()
 {
 	Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
+	const int aPvzuRowYBefore = pvzu::engine::BowlingRowY(this); // PVZU: on the roof the nut follows the slope
 	if (aBodyReanim && aBodyReanim->TrackExists("_ground"))
 	{
 		float aSpeed = aBodyReanim->GetTrackVelocity("_ground");
@@ -2373,6 +2557,8 @@ void Plant::UpdateBowling()
 		if (mX > 800)
 			Die();
 	}
+	mY += pvzu::engine::BowlingRowY(this) - aPvzuRowYBefore; // PVZU: 0 on flat lawns
+	const int aPvzuLastRow = pvzu::engine::BowlingLastRow(mBoard); // PVZU: 4, or 5 on 6-row lawns
 
 	if (mState == PlantState::STATE_BOWLING_UP)
 	{
@@ -2382,7 +2568,7 @@ void Plant::UpdateBowling()
 	{
 		mY += 2;
 	}
-	int aDistToGrid = mBoard->GridToPixelY(0, mRow) - mY;
+	int aDistToGrid = pvzu::engine::BowlingRowY(this) - mY; // PVZU: vanilla GridToPixelY(0, mRow) missed the roof slope
 	if (aDistToGrid < -2 || aDistToGrid > 2)
 		return;
 
@@ -2391,7 +2577,7 @@ void Plant::UpdateBowling()
 	{
 		aNewState = PlantState::STATE_BOWLING_DOWN;
 	}
-	else if (mState == PlantState::STATE_BOWLING_DOWN && mRow >= 4)
+	else if (mState == PlantState::STATE_BOWLING_DOWN && mRow >= aPvzuLastRow) // PVZU: was 4
 	{
 		aNewState = PlantState::STATE_BOWLING_UP;
 	}
@@ -2453,7 +2639,10 @@ void Plant::UpdateBowling()
 		if ((!mApp->IsFirstTimeAdventureMode() || mApp->mPlayerInfo->GetLevel() > 10) && mSeedType == SeedType::SEED_WALLNUT)
 		{
 			mLaunchCounter++;
-			if (mLaunchCounter == 2)
+			if (pvzu::engine::ModesBowlingRicochet(this, aPosX)) // PVZU: Unnamed 3/4 -> hypnotised nut heads, 5+ -> nut packets (hooks 304, 305)
+			{
+			}
+			else if (mLaunchCounter == 2)
 			{
 				mApp->PlayFoley(FoleyType::FOLEY_SPAWN_SUN);
 				mBoard->AddCoin(aPosX, aPosY, CoinType::COIN_SILVER, CoinMotion::COIN_MOTION_COIN);
@@ -2481,7 +2670,7 @@ void Plant::UpdateBowling()
 
 		if (mSeedType != SeedType::SEED_GIANT_WALLNUT)
 		{
-			if (mRow == 4 || mState == PlantState::STATE_BOWLING_DOWN)
+			if (mRow == aPvzuLastRow || mState == PlantState::STATE_BOWLING_DOWN) // PVZU: was 4
 			{
 				aNewState = PlantState::STATE_BOWLING_UP;
 			}
@@ -2541,10 +2730,14 @@ void Plant::UpdateAbilities()
 	if (mIsAsleep || mSquished || mOnBungeeState != PlantOnBungeeState::NOT_ON_BUNGEE)
 		return;
 
+	pvzu::engine::FogPlanternHeal(this); // PVZU: Unnamed Plantern heals its 3x3 every 4 cs (hook 306)
 	UpdateShooting();
 
 	if (mStateCountdown > 0)
 		mStateCountdown--;
+
+	if (mPvzu.modSeed != 0 && pvzu::engine::ModPlantUpdate(this)) // PVZU: mod-only plant abilities (hook 311; Plan 8 part 2)
+		return;
 
 	if (mApp->IsWallnutBowlingLevel())
 	{
@@ -2584,6 +2777,15 @@ void Plant::UpdateAbilities()
 		mDoSpecialCountdown--;
 		if (mDoSpecialCountdown == 0)
 		{
+			// PVZU: Unnamed Cherry Bomb leaves a Potato Mine (21%) when its own fuse runs out; not when crushed (study 3a)
+			if (mSeedType == SeedType::SEED_CHERRYBOMB && mPvzu.modSeed == 0 /* PVZU: seed 2 only, not Shrapnel Cherry */ && pvzu::unnamed::DayPlantsOn() &&
+				pvzu::unnamed::CherryBombLeavesMine(Sexy::Rand(pvzu::unnamed::CherryMineRollRange()), mPlantHealth, mPlantMaxHealth, mApp->IsIZombieLevel()))
+			{
+				mBoard->AddPlant(mPlantCol, mRow, SeedType::SEED_POTATOMINE, SeedType::SEED_NONE);
+				PvzuLogPlant(this, "cherryBomb.leavesPotatoMine");
+			}
+			if (mSeedType == SeedType::SEED_JALAPENO) // PVZU: Unnamed 18% Ice-shroom at full HP (cave 0x651E6C)
+				pvzu::engine::PoolJalapenoIceShroom(this);
 			DoSpecial();
 		}
 	}
@@ -2678,6 +2880,8 @@ void Plant::UpdateReanimColor()
 	else
 	{
 		aColorOverride = Color(255, 255, 255);
+		if (mPvzu.modSeed != 0) // PVZU: a mod-only plant in its own colour (hook 313, table +0x24)
+			aColorOverride = pvzu::engine::ModPlantColor(this, aColorOverride);
 	}
 
 	aBodyReanim->mColorOverride = aColorOverride;
@@ -2854,6 +3058,10 @@ void Plant::UpdateReanim()
 
 void Plant::Update()
 {
+	if (pvzu::engine::PoolFrozenPlantUpdate(this)) // PVZU: frozen for good by a Zomboni (Pool study Z3a)
+		return;
+	if (pvzu::engine::FogIceFreezeSkips(this)) // PVZU: ice-head Jack froze every plant (Fog study 3.1, hook 315)
+		return;
 	bool doUpdate = false;
 	if (IsOnBoard() && mApp->mGameScene == GameScenes::SCENE_LEVEL_INTRO && mApp->IsWallnutBowlingLevel())
 		doUpdate = true;
@@ -2871,6 +3079,8 @@ void Plant::Update()
 
 		if (mPlantHealth < 0)
 			Die();
+		else
+			pvzu::engine::HiddenPlantTick(this); // PVZU: V2 8-2 (72) drains every plant 1 HP per 6 ticks (hook 316)
 
 		UpdateReanim();
 	}
@@ -3079,8 +3289,28 @@ void Plant::UpdateBlink()
 
 	if (mBlinkCountdown > 0)
 	{
+		// PVZU: Unnamed Wall-nut heals to full after 48 s of unchanged HP, not in Wall-nut Bowling (study 4a)
+		if ((mSeedType == SeedType::SEED_WALLNUT || mSeedType == SeedType::SEED_EXPLODE_O_NUT || mSeedType == SeedType::SEED_GIANT_WALLNUT) &&
+			mPvzu.modSeed == 0 /* raw 3 / 0x31 / 0x32 only (cave 0x651d7d), not Bowling Wall-nut */ && IsOnBoard() && pvzu::unnamed::DayPlantsOn())
+		{
+			const int aHpBefore = mPlantHealth;
+			mPlantHealth = pvzu::unnamed::WallnutHealTick(mPvzu, mPlantHealth, mPlantMaxHealth, mApp->IsWallnutBowlingLevel());
+			if (mPlantHealth != aHpBefore)
+				PvzuLogPlant(this, std::format("wallnut.heal {} -> {}", aHpBefore, mPlantHealth));
+		}
+		// PVZU: Unnamed Tall-nut +75 HP per 100 cs of unchanged HP, not in the Zen Garden (hook 807)
+		if (mSeedType == SeedType::SEED_TALLNUT && IsOnBoard() && !pvzu::engine::ModPlantRegenTick(this) /* PVZU: Charmed Tall-nut, shadow only */ &&
+			pvzu::unnamed::PoolPlantsOn())
+		{
+			const int aHpBefore = mPlantHealth;
+			mPlantHealth = pvzu::unnamed::TallnutRegenTick(mPvzu, mPlantHealth, mPlantMaxHealth, mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN);
+			if (mPlantHealth != aHpBefore)
+				PvzuLogPlant(this, std::format("tallnut.regen {} -> {}", aHpBefore, mPlantHealth));
+		}
+		if (pvzu::engine::ModModePlantBlinkTick(this)) // PVZU: mod mode 0x6f drift (hook 318)
+			return;
 		mBlinkCountdown--;
-		if (mBlinkCountdown == 0)
+		if (mBlinkCountdown == 0 && !pvzu::engine::ModModePlantBlinked(this)) // PVZU: mod mode 0x65 explodes (hook 319)
 		{
 			DoBlink();
 		}
@@ -3203,8 +3433,44 @@ void Plant::AnimatePumpkin()
 
 void Plant::UpdateShooting()
 {
-	if (NotOnGround() || mShootingCounter == 0)
+	pvzu::engine::FogSplitPeaShooting(this); // PVZU: Unnamed Split Pea sweep (hooks 314, 325)
+	if (NotOnGround()) // PVZU: the vanilla `NotOnGround() || mShootingCounter == 0` test is split for the Peashooter rule
 		return;
+
+	// PVZU: Unnamed Peashooter speed-up, once per blink cycle 50%: launch rate -5 cs down to 25 (study 1a)
+	const bool aPvzuPeashooter = mSeedType == SeedType::SEED_PEASHOOTER && mPvzu.modSeed == 0 && // PVZU: raw seed 0 only (0xc05d10), not Shadow Peashooter
+		pvzu::unnamed::DayPlantsOn();
+	if (aPvzuPeashooter)
+	{
+		mPvzu.counter = pvzu::unnamed::PeashooterLayersGuard(mPvzu.counter);
+		if (pvzu::unnamed::PeashooterRaiseDue(mBlinkCountdown))
+		{
+			const int aOldRate = mLaunchRate;
+			pvzu::unnamed::LaunchRaise aRaise = pvzu::unnamed::PeashooterRaise(Sexy::Rand(pvzu::unnamed::PeashooterRaiseRollRange()), mLaunchRate, mPvzu.counter);
+			if (aRaise.raised)
+			{
+				mLaunchRate = aRaise.launchRate;
+				mPvzu.counter = aRaise.layers;
+				PvzuLogPlant(this, std::format("peashooter.speedUp launchRate {} -> {} layers {}", aOldRate, mLaunchRate, mPvzu.counter));
+			}
+		}
+	}
+
+	if (mShootingCounter == 0)
+		return;
+
+	if (aPvzuPeashooter) // PVZU: fast Peashooters fire at launch counter 1 and end the shot at 0 (study 1d)
+	{
+		pvzu::unnamed::ShotTiming aTiming = pvzu::unnamed::PeashooterShotTiming(mLaunchCounter);
+		if (aTiming == pvzu::unnamed::ShotTiming::FireNow)
+		{
+			PvzuLogPlant(this, std::format("peashooter.fireAtLaunchCounter shot {} left, launchRate {}", mShootingCounter, mLaunchRate));
+			Fire(nullptr, mRow, PlantWeapon::WEAPON_PRIMARY);
+			return;
+		}
+		if (aTiming == pvzu::unnamed::ShotTiming::EndShot)
+			mShootingCounter = 1; // the decrement below makes it 0: straight to the vanilla shot-end block
+	}
 
 	mShootingCounter--;
 
@@ -3298,6 +3564,7 @@ void Plant::UpdateShooting()
 
 			Zombie* aZombie = FindTargetZombie(mRow, aPlantWeapon);
 			Fire(aZombie, mRow, aPlantWeapon);
+			pvzu::engine::RoofMelonVolley(this, aZombie, static_cast<int>(aPlantWeapon)); // PVZU: Unnamed melon volley (hook 329)
 		}
 		else
 		{
@@ -3431,6 +3698,7 @@ void Plant::Animate()
 	if (mEatenFlashCountdown > 0)
 	{
 		mEatenFlashCountdown--;
+		pvzu::engine::PlantFlashTick(this); // PVZU: a plant the mad knife chewed dies when its mark runs out (0xC02700)
 	}
 	if (mBeghouledFlashCountdown > 0)
 	{
@@ -4098,6 +4366,8 @@ void Plant::Draw(Graphics* g)
 
 void Plant::DrawSeedType(Graphics* g, SeedType theSeedType, SeedType theImitaterType, DrawVariation theDrawVariation, float thePosX, float thePosY)
 {
+	if (pvzu::engine::DrawModSeedType(g, theSeedType, static_cast<int>(theDrawVariation), thePosX, thePosY)) // PVZU: base art, tinted
+		return;
 	Graphics aSeedG(*g);
 	int aCelRow = 0;
 	int aCelCol = 2;
@@ -4185,6 +4455,12 @@ void Plant::MouseDown(int x, int y, int theClickCount)
 {
 	if (theClickCount < 0)
 		return;
+	if (mPvzu.modSeed != 0)
+		pvzu::engine::ModHintPlantTapped(this); // PVZU: hint on a tap that cannot act (unloaded Loaded Cannon, Prism without sun)
+	if (mPvzu.modSeed != 0 && pvzu::engine::ModPlantClicked(this)) // PVZU: Prism-shroom pays 50 sun and fires (hook 339)
+		return;
+	if (mPvzu.modSeed != 0 && pvzu::engine::ShooterPlantClicked(this)) // PVZU: Element-shroom fire/ice toggle (0x7a8ef1)
+		return;
 
 	if (mState == PlantState::STATE_COBCANNON_READY)
 	{
@@ -4216,7 +4492,7 @@ void Plant::IceZombies()
 		aPoolSparklyParticle->mDontUpdate = false;
 	}
 
-	Zombie* aBossZombie = mBoard->GetBossZombie();
+	Zombie* aBossZombie = pvzu::engine::ZombossBreakFireballs(mBoard) ? nullptr : mBoard->GetBossZombie(); // PVZU: every non-hypnotised boss (hook 340)
 	if (aBossZombie)
 	{
 		aBossZombie->BossDestroyFireball();
@@ -4248,7 +4524,7 @@ void Plant::BurnRow(int theRow)
 		}
 	}
 
-	Zombie* aBossZombie = mBoard->GetBossZombie();
+	Zombie* aBossZombie = pvzu::engine::ZombossBreakIceballs(mBoard, theRow) ? nullptr : mBoard->GetBossZombie(); // PVZU: every non-hypnotised boss (hook 341)
 	if (aBossZombie && aBossZombie->mFireballRow == theRow)
 	{
 		aBossZombie->BossDestroyIceballInRow();
@@ -4257,6 +4533,8 @@ void Plant::BurnRow(int theRow)
 
 void Plant::BlowAwayFliers()
 {
+	if (pvzu::engine::FogBloverStorm(this)) // PVZU: Unnamed storm: 20 freeze damage to all, Imps / armless blown off (cave 0x651bc7)
+		return;
 	for (Zombie* aZombie : mBoard->mZombies)
 	{
 		if (aZombie->mDead)
@@ -4273,6 +4551,7 @@ void Plant::BlowAwayFliers()
 
 	mApp->PlaySample(SOUND_BLOVER);
 	mBoard->mFogBlownCountDown = 4000;
+	pvzu::engine::ModModeBlover(mBoard); // PVZU: mod mode 0x7c, 1 tick (hook 342)
 }
 
 void Plant::KillAllPlantsNearDoom()
@@ -4288,8 +4567,25 @@ void Plant::KillAllPlantsNearDoom()
 	}
 }
 
+// PVZU: Unnamed hook 68: a Peashooter planted from the seed bank before Adventure was ever finished starts
+// with 15 layers and launch rate 80 (study 1c). Called by Board::MouseDownWithPlant.
+void Plant::PvzuPlantedFromSeedBank()
+{
+	if (mSeedType != SeedType::SEED_PEASHOOTER || mPvzu.modSeed != 0 /* raw seed 0 only (0xc102a0) */ || !pvzu::unnamed::DayPlantsOn() ||
+		mApp->mPlayerInfo == nullptr)
+		return;
+	pvzu::unnamed::FirstAdventureStart aStart = pvzu::unnamed::PeashooterFirstAdventureStart(mApp->mPlayerInfo->mFinishedAdventure != 0);
+	if (!aStart.applies)
+		return;
+	mPvzu.counter = aStart.layers;
+	mLaunchRate = aStart.launchRate;
+	PvzuLogPlant(this, std::format("peashooter.firstAdventureStart launchRate {} layers {}", mLaunchRate, mPvzu.counter));
+}
+
 void Plant::DoSpecial()
 {
+	if (mPvzu.modSeed != 0 && pvzu::engine::ModPlantDoSpecial(this)) // PVZU: mod-only plant special (Plan 8 part 2)
+		return;
 	int aPosX = mX + mWidth / 2;
 	int aPosY = mY + mHeight / 2;
 	int aDamageRangeFlags = GetDamageRangeFlags(PlantWeapon::WEAPON_PRIMARY);
@@ -4323,11 +4619,15 @@ void Plant::DoSpecial()
 	{
 		mApp->PlaySample(SOUND_DOOMSHROOM);
 
-		mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, 250, 3, true, aDamageRangeFlags);
+		// PVZU: Unnamed whole lawn: radius 990 over 6 rows (in place 0x466836/0x466838), crater 24000 cs (0x466884)
+		const int aPvzuKilled = mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, pvzu::unnamed::DoomRadius(), pvzu::unnamed::DoomRowRange(), true, aDamageRangeFlags);
 		KillAllPlantsNearDoom();
 
 		mApp->AddPvzpParticle(aPosX, aPosY, static_cast<int>(RenderLayer::RENDER_LAYER_TOP), ParticleEffect::PARTICLE_DOOM);
-		mBoard->AddACrater(mPlantCol, mRow)->mGridItemCounter = 18000;
+		mBoard->AddACrater(mPlantCol, mRow)->mGridItemCounter = pvzu::unnamed::DoomCraterCs();
+		if (pvzu::unnamed::NightPlantsOn())
+			PvzuLogPlant(this, std::format("doom.blast radius {} rows {} killed {} crater {} cs", pvzu::unnamed::DoomRadius(),
+				pvzu::unnamed::DoomRowRange(), aPvzuKilled, pvzu::unnamed::DoomCraterCs()));
 		mBoard->ShakeBoard(3, -4);
 
 		Die();
@@ -4338,6 +4638,7 @@ void Plant::DoSpecial()
 		mApp->PlayFoley(FoleyType::FOLEY_JALAPENO_IGNITE);
 		mApp->PlayFoley(FoleyType::FOLEY_JUICY);
 
+		pvzu::engine::PoolJalapenoColumn(this); // PVZU: Unnamed burns its column too (hook 346)
 		mBoard->DoFwoosh(mRow);
 		mBoard->ShakeBoard(3, -4);
 
@@ -4345,6 +4646,7 @@ void Plant::DoSpecial()
 		mBoard->mIceTimer[mRow] = 20;
 
 		Die();
+		pvzu::engine::PoolJalapenoBarrage(this); // PVZU: Unnamed "无名" fireball barrage (hook 347)
 		break;
 	}
 	case SeedType::SEED_UMBRELLA:
@@ -4374,7 +4676,15 @@ void Plant::DoSpecial()
 		aPosY = mY + mHeight / 2;
 
 		mApp->PlaySample(SOUND_POTATO_MINE);
-		if (mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, 60, 0, false, aDamageRangeFlags) >= 1)
+		int aPvzuRadius = 60; // PVZU: Unnamed mine blast radius 100 and ash damage (study 5b)
+		bool aPvzuBurn = false;
+		if (pvzu::unnamed::DayPlantsOn())
+		{
+			aPvzuRadius = pvzu::unnamed::PotatoMineBlastRadius();
+			aPvzuBurn = pvzu::unnamed::PotatoMineBlastBurns();
+			PvzuLogPlant(this, std::format("potatoMine.blast radius {} burn {}", aPvzuRadius, aPvzuBurn ? 1 : 0));
+		}
+		if (mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, aPvzuRadius, 0, aPvzuBurn, aDamageRangeFlags) >= 1)
 			ReportAchievement::GiveAchievement(mApp, Spudow, true);
 
 		int aRenderPosition = Board::MakeRenderOrder(RenderLayer::RENDER_LAYER_PARTICLE, mRow, 0);
@@ -4405,7 +4715,12 @@ void Plant::DoSpecial()
 
 void Plant::ImitaterMorph()
 {
-	Die();
+	mImitaterType = pvzu::engine::ModModeImitaterPick(this); // PVZU: an Imitater with no copy picks one (hook 348)
+	mImitaterType = pvzu::engine::ModImitaterOfImitater(mImitaterType); // PVZU: a coin's copy of an Imitater ends as a plant
+	{
+		pvzu::engine::ModModeImitaterMorphScope aMorph; // PVZU: V2 0x80 restarts nothing for the morph (0x466b89)
+		Die();
+	}
 	Plant* aPlant = mBoard->AddPlant(mPlantCol, mRow, mImitaterType, SeedType::SEED_IMITATER);
 
 	FilterEffect aFilter = FilterEffect::FILTER_EFFECT_WASHED_OUT;
@@ -4475,6 +4790,8 @@ void Plant::CobCannonFire(int theTargetX, int theTargetY)
 
 void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon)
 {
+	if (mPvzu.modSeed != 0 && pvzu::engine::ModPlantFire(this, theTargetZombie, theRow, static_cast<int>(thePlantWeapon))) // PVZU: Plan 8 part 2
+		return;
 	if (mSeedType == SeedType::SEED_FUMESHROOM)
 	{
 		DoRowAreaDamage(20, 2U);
@@ -4765,6 +5082,52 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
 		aProjectile->mCobTargetX = mTargetX - 40;
 		aProjectile->mCobTargetRow = mBoard->PixelToGridYKeepOnBoard(mTargetX, mTargetY);
 	}
+
+	if (pvzu::unnamed::DayPlantsOn()) // PVZU: Unnamed fire chances at the end of Fire (hook 352)
+	{
+		if (mSeedType == SeedType::SEED_REPEATER || mSeedType == SeedType::SEED_GATLINGPEA)
+		{
+			// study 8: 33% two extra diagonal peas from the main pea's spot
+			if (pvzu::unnamed::RepeaterDiagonal(Sexy::Rand(pvzu::unnamed::RepeaterDiagRollRange())))
+			{
+				const float aVelX = pvzu::unnamed::RepeaterDiagVelX();
+				const float aVelY = pvzu::unnamed::RepeaterDiagVelY();
+				for (float aSign : {1.0f, -1.0f})
+				{
+					Projectile* aDiag = mBoard->AddProjectile(aProjectile->mX, aProjectile->mY, mRenderOrder - 1, mRow, ProjectileType::PROJECTILE_PEA);
+					aDiag->mMotionType = ProjectileMotion::MOTION_STAR;
+					aDiag->mDamageRangeFlags = 1;
+					aDiag->mVelX = aVelX;
+					aDiag->mVelY = aSign * aVelY;
+				}
+				PvzuLogPlant(this, std::format("repeater.diagonalPeas vx {:.4f} vy +-{:.4f}", aVelX, aVelY));
+			}
+		}
+		else if (mSeedType == SeedType::SEED_SNOWPEA)
+		{
+			// study 6a: 34% the pea becomes a tier-3 "ice-fire" ball. Not -1 as torchwood column (vanilla would skip it).
+			if (pvzu::unnamed::SnowPeaFireShot(Sexy::Rand(pvzu::unnamed::SnowPeaFireRollRange())))
+			{
+				aProjectile->mPvzu.fireTier = pvzu::unnamed::SnowPeaFireShotStartTier(); // PVZU Plan 4: -1 with Torchwood tiers (-> 3)
+				aProjectile->ConvertToFireball(-2);
+				PvzuLogPlant(this, std::format("snowPea.fireShot tier {}", aProjectile->mPvzu.fireTier));
+			}
+		}
+	}
+	// PVZU: Unnamed Threepeater, each pea Rand(3): 1 snow pea, 2 fire pea (hook 352). Not -1 as torchwood column.
+	if (mSeedType == SeedType::SEED_THREEPEATER && pvzu::unnamed::PoolPlantsOn() && pvzu::unnamed::ThreepeaterPeaRollRange() > 0)
+	{
+		const pvzu::unnamed::PeaKind aKind = pvzu::unnamed::ThreepeaterPeaKind(Sexy::Rand(pvzu::unnamed::ThreepeaterPeaRollRange()));
+		if (aKind == pvzu::unnamed::PeaKind::Snow)
+			aProjectile->mProjectileType = ProjectileType::PROJECTILE_SNOWPEA;
+		else if (aKind == pvzu::unnamed::PeaKind::Fire)
+			aProjectile->ConvertToFireball(-2);
+		if (aKind != pvzu::unnamed::PeaKind::Pea)
+			PvzuLogPlant(this, std::format("threepeater.{} row {} tier {}", aKind == pvzu::unnamed::PeaKind::Snow ? "snowPea" : "firePea",
+				theRow, aProjectile->mPvzu.fireTier));
+	}
+	pvzu::engine::FogShotFired(this, aProjectile, static_cast<int>(thePlantWeapon)); // PVZU: Unnamed Split Pea fire/snow + sweep, Cattail 3% Cob (hooks 352, 326, 354)
+	pvzu::engine::RoofShotFired(this, aProjectile); // PVZU: Unnamed big quick cabbage 1/2, Kernel pity Cob + butter streak (hook 352)
 }
 
 Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon)
@@ -4872,7 +5235,7 @@ Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon)
 			}
 
 			if ((mSeedType == SeedType::SEED_EXPLODE_O_NUT && aZombie->mZombiePhase == ZombiePhase::PHASE_POLEVAULTER_IN_VAULT) ||
-				(mSeedType == SeedType::SEED_TANGLEKELP && !aZombie->mInPool))
+				(mSeedType == SeedType::SEED_TANGLEKELP && pvzu::unnamed::TangleKelpSkipsTarget(aZombie->mZombieType, aZombie->mInPool, aZombie->mBodyMaxHealth))) // PVZU: Unnamed land targets (hook 360)
 			{
 				continue;
 			}
@@ -4930,6 +5293,10 @@ int Plant::DistanceToClosestZombie()
 
 void Plant::Die()
 {
+	if (mPvzu.modSeed != 0) // PVZU: mod-only plant leaving (Plan 8 part 2)
+		pvzu::engine::ModPlantOnDie(this);
+	else if (mSeedType == SeedType::SEED_INSTANT_COFFEE) // PVZU: Unnamed vanilla Coffee Bean heals the plant under it (hook 362)
+		pvzu::engine::CoffeeBeanDies(this);
 	if (IsOnBoard() && mSeedType == SeedType::SEED_TANGLEKELP)
 	{
 		Zombie* aZombie = mBoard->ZombieTryToGet(mTargetZombieID);
@@ -4940,7 +5307,9 @@ void Plant::Die()
 	}
 
 	mDead = true;
+	pvzu::engine::ModModePlantDied(this); // PVZU: V2 0x80 the plant's packet starts recharging (hook 361)
 	RemoveEffects();
+	pvzu::engine::GlovePlantDied(this); // PVZU: Unnamed glove Pole leaps to a dead plant (hook 361)
 
 	if (!Plant::IsFlying(mSeedType) && IsOnBoard())
 	{
@@ -4965,14 +5334,20 @@ void Plant::Die()
 
 const PlantDefinition& GetPlantDefinition(SeedType theSeedType)
 {
+	if (const PlantDefinition* aModDef = pvzu::engine::ModPlantDefinition(theSeedType)) // PVZU: seeds 0x50..0x7f (hooks 364/368)
+		return *aModDef;
 	PVZP_ASSERT(gPlantDefs[theSeedType].mSeedType == theSeedType);
 	PVZP_ASSERT(theSeedType >= 0 && theSeedType < static_cast<int>(SeedType::NUM_SEED_TYPES));
 
-	return gPlantDefs[theSeedType];
+	return pvzu::engine::ActivePlant(theSeedType); // PVZU: mod packs can change costs/recharge
 }
 
 int Plant::GetCost(SeedType theSeedType, SeedType theImitaterType)
 {
+	if (theSeedType == SeedType::SEED_NONE) // PVZU: an emptied packet (7-10 light) costs nothing, never reads plants[-1]
+		return 0;
+	if (int aPvzuCost = 0; pvzu::engine::ModesIZombieCost(theSeedType, aPvzuCost)) // PVZU: I, Zombie card prices (hook 363)
+		return aPvzuCost;
 	if (gLawnApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED || gLawnApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED_TWIST)
 	{
 		if (theSeedType == SeedType::SEED_REPEATER)
@@ -5036,6 +5411,8 @@ int Plant::GetCost(SeedType theSeedType, SeedType theImitaterType)
 
 std::string Plant::GetNameString(SeedType theSeedType, SeedType theImitaterType)
 {
+	if (auto aModName = pvzu::engine::ModPlantNameString(theSeedType)) // PVZU: literal mod-plant name (hook 365)
+		return *aModName;
 	const PlantDefinition& aPlantDef = GetPlantDefinition(theSeedType);
 	std::string aName = std::format("[{}]", aPlantDef.mPlantName);
 	std::string aTranslatedName(PvzpStringTranslate(aName));
@@ -5053,6 +5430,8 @@ std::string Plant::GetNameString(SeedType theSeedType, SeedType theImitaterType)
 
 std::string Plant::GetToolTip(SeedType theSeedType)
 {
+	if (auto aModTip = pvzu::engine::ModPlantToolTip(theSeedType)) // PVZU: literal mod-plant tooltip (hook 367)
+		return *aModTip;
 	const PlantDefinition& aPlantDef = GetPlantDefinition(theSeedType);
 	std::string aToolTip = std::format("[{}_TOOLTIP]", aPlantDef.mPlantName);
 	return std::string(PvzpStringTranslate(aToolTip));
@@ -5060,6 +5439,8 @@ std::string Plant::GetToolTip(SeedType theSeedType)
 
 int Plant::GetRefreshTime(SeedType theSeedType, SeedType theImitaterType)
 {
+	if (theSeedType == SeedType::SEED_NONE) // PVZU: an emptied packet (7-10 light) has no recharge, never reads plants[-1]
+		return 0;
 	if (Challenge::IsZombieSeedType(theSeedType))
 	{
 		return 0;
@@ -5160,7 +5541,7 @@ Rect Plant::GetPlantRect()
 Rect Plant::GetPlantAttackRect(PlantWeapon thePlantWeapon)
 {
 	Rect aRect;
-	if (mApp->IsWallnutBowlingLevel())
+	if (mApp->IsWallnutBowlingLevel() || (mPvzu.modSeed != 0 && pvzu::engine::ModPlantBowlingRect(this))) // PVZU: Bowling Wall-nut (hook 370)
 	{
 		aRect = Rect(mX, mY, mWidth - 20, mHeight);
 	}
@@ -5179,7 +5560,7 @@ Rect Plant::GetPlantAttackRect(PlantWeapon thePlantWeapon)
 	case SeedType::SEED_TORCHWOOD:      aRect = Rect(mX + 50,       mY,             30,                 mHeight);               break;
 	case SeedType::SEED_PUFFSHROOM:
 	case SeedType::SEED_SEASHROOM:      aRect = Rect(mX + 60,       mY,             230,                mHeight);               break;
-	case SeedType::SEED_FUMESHROOM:     aRect = Rect(mX + 60,       mY,             340,                mHeight);               break;
+	case SeedType::SEED_FUMESHROOM:     aRect = Rect(mX + 60,       mY,             pvzu::unnamed::FumeAttackWidth(), mHeight); break; // PVZU: Unnamed 800 (in place 0x4680DE)
 	case SeedType::SEED_GLOOMSHROOM:    aRect = Rect(mX - 80,       mY - 80,        240,                240);                   break;
 	case SeedType::SEED_TANGLEKELP:     aRect = Rect(mX,            mY,             mWidth,             mHeight);               break;
 	case SeedType::SEED_CATTAIL:        aRect = Rect(-BOARD_WIDTH,  -BOARD_HEIGHT,  BOARD_WIDTH * 2,    BOARD_HEIGHT * 2);      break;

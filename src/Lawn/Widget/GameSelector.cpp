@@ -19,6 +19,10 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Engine/Startup.h" // PVZU
+#include "Mod/Engine/WideScreen.h" // PVZU
+#include "Mod/Engine/LaterLevels.h" // PVZU Plan 7: level skip
+#include "Mod/Engine/TestCheats.h" // PVZU Plan 9 C1
 #include "../Board.h"
 #include "../LawnCommon.h"
 #include "GameButton.h"
@@ -346,7 +350,7 @@ GameSelector::GameSelector(LawnApp* theApp)
 	mDestY = 0;
 	mZombatarWidget = std::make_unique<ZombatarWidget>(this);
 	mAchievementsWidget = std::make_unique<AchievementsWidget>(this->mApp);
-	mAchievementsWidget->Move(0, mApp->mHeight);
+	mAchievementsWidget->Move(pvzu::engine::CenteredX(), mApp->mHeight); // PVZU: centred
 
 	// Add as children in z-order (bottom to top).
 	AddWidget(mAchievementsButton);
@@ -527,6 +531,8 @@ void GameSelector::SyncProfile(bool theShowLoading)
 			mSurvivalLocked = true;
 		}
 	}
+	if (pvzu::engine::TestCheatModesOpen()) // PVZU Plan 9 C1: test cheat "all modes open"
+		mMinigamesLocked = mPuzzleLocked = mSurvivalLocked = false;
 
 	if (mApp->HasFinishedAdventure() && !mApp->IsTrialStageLocked())
 		mHasTrophy = true;
@@ -623,7 +629,7 @@ void GameSelector::DrawOverlay(Graphics* g)
 		float aTransSubX = aTransAreaX;
 		float aTransSubY = aTransAreaY;
 
-		int aStage = std::clamp((mLevel - 1) / 10 + 1, 1, 6);
+		int aStage = std::clamp((mLevel - 1) / 10 + 1, 1, pvzu::engine::StageAreaMax(6)); // PVZU: 7-x, 8-x
 		int aSub = mLevel - (aStage - 1) * 10;
 		if (mApp->IsTrialStageLocked() && (mLevel >= 25 || mApp->HasFinishedAdventure()))
 		{
@@ -745,6 +751,7 @@ void GameSelector::Update()
 		Move(aNewX, aNewY);
 
 		mZombatarWidget->Move(aNewX + BOARD_WIDTH, aNewY);
+		mAchievementsWidget->mX = pvzu::engine::CenteredX(); // PVZU: stays under the centred selector (vanilla 0)
 		mAchievementsWidget->mY = aNewY + mApp->mHeight;
 
 		mSlideCounter--;
@@ -1115,6 +1122,7 @@ void GameSelector::ButtonMouseEnter(int theId)
 
 void GameSelector::ButtonPress(int theId)
 {
+	pvzu::engine::LevelSkipButtonPress(theId); // PVZU: hold count for the touch long press (level skip)
 	if (theId == GameSelector::GameSelector_Adventure || theId == GameSelector::GameSelector_Minigame ||
 		theId == GameSelector::GameSelector_Puzzle || theId == GameSelector::GameSelector_Survival ||
 		theId == GameSelector::GameSelector_Zombatar)
@@ -1143,8 +1151,13 @@ void GameSelector::ClickedAdventure()
 	}
 
 	mApp->mMusic->StopAllMusic();
-	mApp->PlaySample(Sexy::SOUND_LOSEMUSIC);
+	// PVZU: 2026-11-23: the zombie-hand scene (450 ticks) only the first time or after a year away
+	const bool aPlayIntro = pvzu::engine::TakeAdventureIntro();
+	if (aPlayIntro)
+		mApp->PlaySample(Sexy::SOUND_LOSEMUSIC);
 	mStartingGame = true;
+	if (!aPlayIntro)
+		mStartingGameCounter = 450; // the next Update starts the level
 	mAdventureButton->SetDisabled(true);
 	mMinigameButton->SetDisabled(true);
 	mPuzzleButton->SetDisabled(true);
@@ -1159,6 +1172,8 @@ void GameSelector::ClickedAdventure()
 	mZombatarButton->SetDisabled(true);
 	mAchievementsButton->SetDisabled(true);
 
+	if (!aPlayIntro)
+		return;
 	Reanimation* aHandReanim = mApp->AddReanimation(-70.0f, 10.0f, 0, ReanimationType::REANIM_ZOMBIE_HAND);
 	aHandReanim->mLoopType = ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD;
 	mHandReanimID = mApp->ReanimationGetID(aHandReanim);
@@ -1177,6 +1192,16 @@ void GameSelector::ButtonDepress(int theId)
 {
 	if (mSlideCounter > 0)
 		return;
+
+	{ // PVZU: Unnamed level skip (hook 239, 0x7a1600), before the locked-mode messages as in the exe
+		using pvzu::unnamed::SkipButton;
+		const SkipButton aSkipButton = theId == GameSelector::GameSelector_Adventure ? SkipButton::Adventure
+			: theId == GameSelector::GameSelector_Minigame ? SkipButton::Minigame
+			: theId == GameSelector::GameSelector_Puzzle ? SkipButton::Puzzle
+			: theId == GameSelector::GameSelector_Survival ? SkipButton::Survival : SkipButton::Other;
+		if (pvzu::engine::LevelSkipButtonDepress(mApp, aSkipButton, theId))
+			return;
+	}
 
 	if (theId == GameSelector::GameSelector_Minigame && mMinigamesLocked)
 	{
@@ -1365,7 +1390,7 @@ void GameSelector::SlideTo(int theX, int theY)
 		return;
 
 	mSlideCounter = 75;
-	mDestX = theX;
+	mDestX = theX + pvzu::engine::CenteredX(); // PVZU: slide targets are vanilla screen positions
 	mDestY = theY;
 	mStartX = mX;
 	mStartY = mY;
@@ -1385,4 +1410,9 @@ void GameSelector::ShowAchievementsScreen()
 {
 	SlideTo(0, -mApp->mHeight);
 	mWidgetManager->SetFocus(mAchievementsWidget.get());
+}
+
+void GameSelector::ButtonDownTick(int theId) // PVZU: counts a held press (touch long press = right click, level skip)
+{
+	pvzu::engine::LevelSkipButtonDownTick(theId);
 }

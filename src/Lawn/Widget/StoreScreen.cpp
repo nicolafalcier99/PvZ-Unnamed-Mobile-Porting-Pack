@@ -19,6 +19,10 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Engine/WideScreen.h" // PVZU
+#include "Mod/Engine/OptionsPanel.h" // PVZU
+#include "Mod/Mode.h" // PVZU
+#include "Mod/SeedSlots.h" // PVZU
 #include <cstdint>
 #include <time.h>
 #include "../Coin.h"
@@ -101,7 +105,7 @@ StoreScreen::StoreScreen(LawnApp* theApp) : Dialog(nullptr, nullptr, DIALOG_STOR
 	mLoadedResourceNames.push_back("DelayLoad_Store");
 	for (std::string& resource : mLoadedResourceNames)
 		PvzpLoadResources(resource.c_str());
-	Resize(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
+	Resize(pvzu::engine::CenteredX(), 0, BOARD_WIDTH, BOARD_HEIGHT); // PVZU: centred
 	mPottedPlantSpecs.InitializePottedPlant(SEED_MARIGOLD);
 	mPottedPlantSpecs.mDrawVariation = (DrawVariation)RandRangeInt(VARIATION_MARIGOLD_WHITE, VARIATION_MARIGOLD_LIGHT_GREEN);
 
@@ -212,7 +216,7 @@ bool StoreScreen::IsItemSoldOut(StoreItem theStoreItem)
 	if (theStoreItem == STORE_ITEM_INVALID)
 		return false;
 	else if (theStoreItem == STORE_ITEM_PACKET_UPGRADE)
-		return aPlayer->mPurchases[STORE_ITEM_PACKET_UPGRADE] >= 4;
+		return pvzu::PacketUpgradeSoldOut(pvzu::CurrentMode(), aPlayer->mPurchases[STORE_ITEM_PACKET_UPGRADE]); // PVZU: vanilla 4, Unnamed 9 (Mod/SeedSlots.h)
 	else if (theStoreItem == STORE_ITEM_FERTILIZER || theStoreItem == STORE_ITEM_BUG_SPRAY)
 		return aPlayer->mPurchases[theStoreItem] > PURCHASE_COUNT_OFFSET + 15;
 	else if (theStoreItem == STORE_ITEM_TREE_FOOD)
@@ -961,6 +965,7 @@ void StoreScreen::PurchaseItem(StoreItem theStoreItem)
 
 		if (aComfirmResult == ID_OK)
 		{
+			const int aPvzuCost = GetItemCost(theStoreItem), aPvzuCoins = mApp->mPlayerInfo->mCoins; // PVZU: -pvzu-log-store
 			mApp->mPlayerInfo->AddCoins(-GetItemCost(theStoreItem));
 			if (theStoreItem == STORE_ITEM_PACKET_UPGRADE)
 			{
@@ -1048,6 +1053,7 @@ void StoreScreen::PurchaseItem(StoreItem theStoreItem)
 				mApp->mPlayerInfo->mPurchases[theStoreItem] = 1;
 			}
 
+			pvzu::engine::DevLogPurchase(mApp, theStoreItem, aPvzuCost, aPvzuCoins); // PVZU: -pvzu-log-store
 			if (theStoreItem == STORE_ITEM_FIRSTAID)
 			{
 				SetBubbleText(3400, 800, false);

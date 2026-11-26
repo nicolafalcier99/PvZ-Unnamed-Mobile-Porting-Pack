@@ -19,6 +19,21 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Layout.h" // PVZU
+#include "Mod/Engine/OptionsPanel.h" // PVZU
+#include "Mod/Engine/TestCheats.h" // PVZU Plan 9 C1
+#include "Mod/Engine/StringOverlay.h" // PVZU
+#include "Mod/Mode.h" // PVZU
+#include "Mod/Unnamed/ModModes.h" // PVZU: mod-mode records (HasBeatenChallenge)
+#include "Mod/Engine/Startup.h" // PVZU
+#include "Mod/CmdLine.h" // PVZU
+#include "Mod/Engine/EngineTables.h" // PVZU
+#include "Mod/GameData.h" // PVZU
+#include "Mod/Engine/DayZombiesDev.h" // PVZU
+#include "Mod/Engine/LaterLevels.h" // PVZU Plan 7: Adventure 51-73
+#include "Mod/Engine/ModModes.h" // PVZU: mod-only modes 0x65..0x94
+#include "Mod/Engine/WideScreen.h" // PVZU
+#include "Mod/Engine/ModPlants.h" // PVZU Plan 8: mod-only plants (CARD)
 #include <time.h>
 #include <cstdarg>
 #include <cstdio>
@@ -357,7 +372,7 @@ void LawnApp::MakeNewBoard()
 {
 	KillBoard();
 	mBoard = new Board(this);
-	mBoard->Resize(0, 0, mWidth, mHeight);
+	pvzu::engine::PlaceBoard(mBoard); // PVZU: board rests where the wide layout puts the lawn
 	mWidgetManager->AddWidget(mBoard);
 	mWidgetManager->BringToBack(mBoard);
 	mWidgetManager->SetFocus(mBoard);
@@ -446,10 +461,11 @@ void LawnApp::ShowGameSelector()
 
 	mGameScene = GameScenes::SCENE_MENU;
 	mGameSelector = std::make_unique<GameSelector>(this);
-	mGameSelector->Resize(0, 0, mWidth, mHeight);
+	pvzu::engine::PlaceCenteredScreen(mGameSelector.get()); // PVZU: 800 screen, centred
 	mWidgetManager->AddWidget(mGameSelector.get());
 	mWidgetManager->BringToBack(mGameSelector.get());
 	mWidgetManager->SetFocus(mGameSelector.get());
+	pvzu::engine::TestCheatsMainMenuShown(this); // PVZU Plan 9 C1: restore a test jump; "Test cheats" button
 
 	//if (NeedRegister())
 	//{
@@ -459,6 +475,7 @@ void LawnApp::ShowGameSelector()
 
 void LawnApp::KillGameSelector()
 {
+	pvzu::engine::TestCheatsMainMenuGone(this); // PVZU Plan 9 C1
 	if (mGameSelector)
 	{
 		mWidgetManager->RemoveWidget(mGameSelector.get());
@@ -469,8 +486,9 @@ void LawnApp::KillGameSelector()
 void LawnApp::ShowAwardScreen(AwardType theAwardType, bool theShowAchievements)
 {
 	mGameScene = GameScenes::SCENE_AWARD;
+	pvzu::engine::DevLogAward(static_cast<int>(theAwardType)); // PVZU: -pvzu-log-waves award line (no game effect)
 	mAwardScreen = std::make_unique<AwardScreen>(this, theAwardType, theShowAchievements);
-	mAwardScreen->Resize(0, 0, mWidth, mHeight);
+	pvzu::engine::PlaceCenteredScreen(mAwardScreen.get()); // PVZU: 800 screen, centred
 	mWidgetManager->AddWidget(mAwardScreen.get());
 	mWidgetManager->BringToBack(mAwardScreen.get());
 	mWidgetManager->SetFocus(mAwardScreen.get());
@@ -488,7 +506,7 @@ void LawnApp::KillAwardScreen()
 void LawnApp::ShowCreditScreen()
 {
 	mCreditScreen = std::make_unique<CreditScreen>(this);
-	mCreditScreen->Resize(0, 0, mWidth, mHeight);
+	pvzu::engine::PlaceCenteredScreen(mCreditScreen.get()); // PVZU: 800 screen, centred
 	mWidgetManager->AddWidget(mCreditScreen.get());
 	mWidgetManager->BringToBack(mCreditScreen.get());
 	mWidgetManager->SetFocus(mCreditScreen.get());
@@ -507,7 +525,7 @@ void LawnApp::ShowChallengeScreen(ChallengePage thePage)
 {
 	mGameScene = GameScenes::SCENE_CHALLENGE;
 	mChallengeScreen = std::make_unique<ChallengeScreen>(this, thePage);
-	mChallengeScreen->Resize(0, 0, mWidth, mHeight);
+	pvzu::engine::PlaceCenteredScreen(mChallengeScreen.get()); // PVZU: 800 screen, centred
 	mWidgetManager->AddWidget(mChallengeScreen.get());
 	mWidgetManager->BringToBack(mChallengeScreen.get());
 	mWidgetManager->SetFocus(mChallengeScreen.get());
@@ -548,7 +566,7 @@ void LawnApp::ShowSeedChooserScreen()
 	PVZP_ASSERT(mSeedChooserScreen == nullptr);
 
 	mSeedChooserScreen = std::make_unique<SeedChooserScreen>();
-	mSeedChooserScreen->Resize(0, 0, mWidth, mHeight);
+	mSeedChooserScreen->Resize(pvzu::ChooserScreenX(pvzu::CurrentLayout()), 0, mWidth, mHeight); // PVZU: right of the safe inset
 	mWidgetManager->AddWidget(mSeedChooserScreen.get());
 	mWidgetManager->BringToBack(mSeedChooserScreen.get());
 }
@@ -1059,9 +1077,7 @@ bool LawnApp::KillNewOptionsDialog()
 	if (aNewOptionsDialog == nullptr)
 		return false;
 
-	bool wantWindowed = !aNewOptionsDialog->mFullscreenCheckbox->IsChecked();
-	bool want3D = aNewOptionsDialog->mHardwareAccelerationCheckbox->IsChecked();
-	SwitchScreenMode(wantWindowed, want3D, false);
+	// PVZU: those two checkboxes are now "Unnamed Mode" / "Chinese Text" (saved settings), not screen modes.
 
 	KillDialog(Dialogs::DIALOG_NEWOPTIONS);
 	ClearUpdateBacklog();
@@ -1148,6 +1164,7 @@ void LawnApp::ShowResourceError(bool doExit)
 void LawnApp::Init()
 {
 	DoParseCmdLine();
+	pvzu::engine::RegisterVanillaTables(); // PVZU: vanilla tables into GameData before anything reads them
 	if (!mCheatKeys)
 	{
 		mOnlyAllowOneCopyToRun = true;
@@ -1160,6 +1177,13 @@ void LawnApp::Init()
 	mSawYeti = false;
 
 	SexyApp::Init();
+	pvzu::engine::ApplyStartupMode(); // PVZU: after the app data folder is known (Android), before saves/profiles load
+	pvzu::engine::ApplyUnnamedOptions(this); // PVZU: Unnamed options that live in the app (free planting)
+	if (auto aDumpPath = pvzu::CmdOption("-pvzu-dump-tables")) // PVZU: dev check of the live (mode-applied) tables
+	{
+		pvzu::DumpActiveTables(*aDumpPath);
+		DoExit(0);
+	}
 
 	if (mShutdown) // MakeWindow() failed
 		return;
@@ -1167,9 +1191,9 @@ void LawnApp::Init()
 	if (mRecordingDemoBuffer || mPlayingDemoBuffer)
 		mAppRandSeed = mRandSeed; // demo sessions derive the app-level seed from the recorded one
 
-	Sexy::MkDir(Sexy::GetAppDataPath("userdata"));
+	Sexy::MkDir(Sexy::GetAppDataPath(pvzu::CurrentUserDataPath("")) /* PVZU: per-mode saves */);
 #ifdef PVZ_DEBUG
-	Sexy::RegisterLogFileSink(Sexy::GetAppDataPath("userdata/") + "log.txt");
+	Sexy::RegisterLogFileSink(Sexy::GetAppDataPath(pvzu::CurrentUserDataPath("log.txt")) /* PVZU */);
 	PvzpLogLn("Started {}", static_cast<uint64_t>(std::time(nullptr)));
 #endif
 	PvzpLogLn("session id: {}", static_cast<long long>(mSessionID));
@@ -1199,13 +1223,22 @@ void LawnApp::Init()
 	{
 		mPlayerInfo = mProfileMgr->GetAnyProfile();
 	}
+	pvzu::engine::DevProfileOverrides(mPlayerInfo); // PVZU: -pvzu-dev-finished (no effect without it)
+	if (int aDevLevel = pvzu::CmdOptionInt("-pvzu-dev-set-level", 0); aDevLevel > 0 && mPlayerInfo) // PVZU: dev, move a profile's Adventure level
+	{
+		mPlayerInfo->SetLevel(aDevLevel);
+		mPlayerInfo->SaveDetails();
+		mProfileMgr->Save();
+		PvzpLogLn("PVZU dev: profile '{}' set to Adventure level {}", mPlayerInfo->mName, aDevLevel);
+		DoExit(0);
+	}
 
 	mMaxExecutions = GetInteger("MaxExecutions", 0);
 	mMaxPlays = GetInteger("MaxPlays", 0);
 	mMaxTime = GetInteger("MaxTime", 60);
 
 	mTitleScreen = std::make_unique<TitleScreen>(this);
-	mTitleScreen->Resize(0, 0, mWidth, mHeight);
+	pvzu::engine::PlaceCenteredScreen(mTitleScreen.get()); // PVZU: 800 screen, centred
 	mWidgetManager->AddWidget(mTitleScreen.get());
 	mWidgetManager->SetFocus(mTitleScreen.get());
 
@@ -1297,7 +1330,7 @@ bool LawnApp::UpdatePlayerProfileForFinishingLevel()
 
 	if (IsAdventureMode())
 	{
-		if (mBoard->mLevel == FINAL_LEVEL)
+		if (mBoard->mLevel == pvzu::engine::AdventureFinalLevel()) // PVZU: Unnamed runs to 73 (0x452331); awards below keep 50
 		{
 			mPlayerInfo->SetLevel(1);
 			mPlayerInfo->mFinishedAdventure++;
@@ -1358,7 +1391,7 @@ bool LawnApp::UpdatePlayerProfileForFinishingLevel()
 	}
 	else
 	{
-		aUnlockedNewChallenge = !HasBeatenChallenge(mGameMode);
+		aUnlockedNewChallenge = !HasBeatenChallenge(mGameMode) && !pvzu::engine::IsModModeRunning(this); // PVZU: hook 251, no unlock from a mod mode
 		mPlayerInfo->mChallengeRecords[GetCurrentChallengeIndex()]++;
 
 		if (aUnlockedNewChallenge && HasFinishedAdventure())
@@ -1399,6 +1432,7 @@ void LawnApp::CheckForGameEnd()
 		return;
 
 	bool aUnlockedNewChallenge = UpdatePlayerProfileForFinishingLevel();
+	pvzu::engine::DevLogFinish(this, mBoard->mLevel); // PVZU: -pvzu-log-waves finish line (no game effect)
 
 	if (IsAdventureMode())
 	{
@@ -1580,6 +1614,7 @@ void LawnApp::UpdateFrames()
 	for (int i = 0; i < aUpdateCount; i++)
 	{
 		mAppCounter++;
+		pvzu::engine::DayZombiesDevUpdate(this); // PVZU: -pvzu-dev-* desktop checks (inert without them)
 
 		if (mBoard)
 		{
@@ -1644,6 +1679,7 @@ void LawnApp::LoadingThreadProc()
 	LoadProperties("properties/default.xml", false, false);
 	LoadProperties("properties/Layout.xml", false, false);
 	LoadProperties("properties/pvz-portable.xml", false, false);
+	pvzu::engine::ApplyStringOverlays(); // PVZU: Unnamed text wins over vanilla strings and properties
 
 	if (mTitleScreen)
 	{
@@ -1779,6 +1815,7 @@ void LawnApp::ConfirmQuit()
 void LawnApp::PreDisplayHook()
 {
 	SexyApp::PreDisplayHook();
+	pvzu::engine::InitLogicalWidth(this); // PVZU: logical width from the screen's aspect (phone) or -pvzu-width
 }
 
 
@@ -1946,7 +1983,7 @@ void LawnApp::ButtonDepress(int theId)
 
 void LawnApp::CenterDialog(Dialog* theDialog, int theWidth, int theHeight)
 {
-	theDialog->Resize((BOARD_WIDTH - theWidth) / 2, (BOARD_HEIGHT - theHeight) / 2, theWidth, theHeight);
+	theDialog->Resize((pvzu::engine::ScreenWidth() - theWidth) / 2, (BOARD_HEIGHT - theHeight) / 2, theWidth, theHeight); // PVZU: centre on the wide screen
 }
 
 void LawnApp::PlayFoley(FoleyType theFoleyType)
@@ -1967,7 +2004,7 @@ void LawnApp::PlayFoleyPitch(FoleyType theFoleyType, float thePitch)
 
 std::string LawnApp::GetStageString(int theLevel)
 {
-	int aArea = std::clamp((theLevel - 1) / LEVELS_PER_AREA + 1, 1, ADVENTURE_AREAS + 1);
+	int aArea = std::clamp((theLevel - 1) / LEVELS_PER_AREA + 1, 1, pvzu::engine::StageAreaMax(ADVENTURE_AREAS + 1)); // PVZU: 7-x, 8-x
 	int aSub = theLevel - (aArea - 1) * LEVELS_PER_AREA;
 	return std::format("{}-{}", aArea, aSub);
 }
@@ -2065,7 +2102,8 @@ bool LawnApp::IsIZombieLevel()
 		mGameMode == GameMode::GAMEMODE_PUZZLE_I_ZOMBIE_7 ||
 		mGameMode == GameMode::GAMEMODE_PUZZLE_I_ZOMBIE_8 ||
 		mGameMode == GameMode::GAMEMODE_PUZZLE_I_ZOMBIE_9 ||
-		mGameMode == GameMode::GAMEMODE_PUZZLE_I_ZOMBIE_ENDLESS;
+		mGameMode == GameMode::GAMEMODE_PUZZLE_I_ZOMBIE_ENDLESS ||
+		pvzu::engine::ModModeIsIZombie(this); // PVZU: mod mode 0x8c (0x45380f -> 0xc002e0)
 }
 
 bool LawnApp::IsShovelLevel()
@@ -2108,6 +2146,8 @@ bool LawnApp::IsLittleTroubleLevel()
 bool LawnApp::IsScaryPotterLevel()
 {
 	if (mGameMode >= GameMode::GAMEMODE_SCARY_POTTER_1 && mGameMode <= GameMode::GAMEMODE_SCARY_POTTER_ENDLESS)
+		return true;
+	if (pvzu::engine::ModModeIsVasebreaker(this)) // PVZU: mod modes 0x7d / 0x8f (0x4538f0 -> 0xc01cd0)
 		return true;
 
 	return IsAdventureMode() && mBoard && mBoard->mLevel == 35;
@@ -2182,6 +2222,8 @@ int LawnApp::GetCurrentChallengeIndex()
 
 const ChallengeDefinition& LawnApp::GetCurrentChallengeDef()
 {
+	if (const ChallengeDefinition* aPvzuDef = pvzu::engine::ModModeChallengeDef(this)) // PVZU: mod modes 0x65..0x94
+		return *aPvzuDef;
 	return GetChallengeDefinition(GetCurrentChallengeIndex());
 }
 
@@ -2253,6 +2295,8 @@ SeedType LawnApp::GetAwardSeedForLevel(int theLevel)
 
 int LawnApp::GetSeedsAvailable()
 {
+	if (pvzu::engine::TestCheatAllSeeds()) // PVZU Plan 9 C1: test cheat "plant anything"
+		return 49;
 	int aLevel = mPlayerInfo->GetLevel();
 	if (HasFinishedAdventure() || aLevel > 50)
 	{
@@ -2267,6 +2311,10 @@ bool LawnApp::HasSeedType(SeedType theSeedType)
 {
 	if (IsTrialStageLocked() && theSeedType >= SeedType::SEED_JALAPENO)
 		return false;
+	if (auto aCard = pvzu::engine::ModHasSeedType(this, theSeedType)) // PVZU: CARD + Imitater -> 49..52 and mod plants (hook 256)
+		return *aCard;
+	if (pvzu::engine::TestCheatAllSeeds() && theSeedType >= SeedType::SEED_PEASHOOTER && theSeedType <= SeedType::SEED_IMITATER) // PVZU Plan 9 C1
+		return true;
 
 	/*  optimization
 	if (theSeedType >= SeedType::SEED_GATLINGPEA && theSeedType <= SeedType::SEED_IMITATER)
@@ -2422,6 +2470,9 @@ bool LawnApp::HasBeatenChallenge(GameMode theGameMode)
 	if (mPlayerInfo == nullptr)
 		return false;
 
+	bool aPvzuBeaten = false; // PVZU: mod modes 0x65..0x94 keep their records at 100..147, past the vanilla challenge table
+	if (pvzu::unnamed::ModModeBeaten(theGameMode, mPlayerInfo->mChallengeRecords, aPvzuBeaten))
+		return aPvzuBeaten;
 	int aChallengeIndex = theGameMode - GameMode::GAMEMODE_SURVIVAL_NORMAL_STAGE_1;
 	PVZP_ASSERT(aChallengeIndex >= 0 && aChallengeIndex < NUM_CHALLENGE_MODES);
 	if (IsSurvivalNormal(theGameMode))
@@ -3213,10 +3264,7 @@ void LawnApp::SwitchScreenMode(bool wantWindowed, bool is3d, bool force)
 	SexyAppBase::SwitchScreenMode(wantWindowed, is3d, force);
 
 	NewOptionsDialog* aNewOptionsDialog = (NewOptionsDialog*)GetDialog(Dialogs::DIALOG_NEWOPTIONS);
-	if (aNewOptionsDialog)
-	{
-		aNewOptionsDialog->mFullscreenCheckbox->SetChecked(!mIsWindowed);
-	}
+	(void)aNewOptionsDialog; // PVZU: the Full Screen row is now "Chinese Text"; don't sync it to the window mode
 }
 
 void LawnApp::DoHighScoreDialog()

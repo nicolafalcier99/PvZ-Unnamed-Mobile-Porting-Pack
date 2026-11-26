@@ -36,7 +36,7 @@ constexpr const int LAWN_XMIN = 40;
 constexpr const int LAWN_YMIN = 80;
 constexpr const int HIGH_GROUND_HEIGHT = 30;
 
-constexpr const int SEEDBANK_MAX = 10;
+constexpr const int SEEDBANK_MAX = 15; // PVZU: Unnamed sells 9 slot upgrades (vanilla 4); saves keep vanilla's 10-packet layout (Mod/SeedSlots.h)
 constexpr const int SEED_BANK_OFFSET_X = 0;
 constexpr const int SEED_BANK_OFFSET_X_END = 10;
 constexpr const int SEED_CHOOSER_OFFSET_Y = 516;

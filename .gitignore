@@ -456,3 +456,15 @@ build-*/
 
 # Game recordings
 *.dmo
+
+# PVZU: never commit game files or third-party downloads
+*.pak
+*.exe
+*.dll
+pvz-game-files/
+assets-local/
+build-mac/
+dist/
+.superpowers/
+android/local.properties
+android/app/src/main/assets/pvzu-pack/

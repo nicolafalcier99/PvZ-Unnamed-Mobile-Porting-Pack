@@ -19,6 +19,9 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Engine/Startup.h" // PVZU
+#include "Mod/Engine/ZipImport.h" // PVZU
+#include "graphics/Font.h" // PVZU: the import button's label width
 #include "../Board.h"
 #include "GameButton.h"
 #include "../Cutscene.h"
@@ -45,6 +48,10 @@ NewOptionsDialog::NewOptionsDialog(LawnApp* theApp, bool theFromGameSelector) :
 	mAlmanacButton = MakeButton(NewOptionsDialog::NewOptionsDialog_Almanac, this, "[VIEW_ALMANAC_BUTTON]");
 	mRestartButton = MakeButton(NewOptionsDialog::NewOptionsDialog_Restart, this, "[RESTART_LEVEL]");
 	mBackToMainButton = MakeButton(NewOptionsDialog::NewOptionsDialog_MainMenu, this, "[MAIN_MENU_BUTTON]");
+	// PVZU: "Import Unnamed ZIP" (Android, Options from the main menu; it takes the Restart slot, hidden there)
+	mImportUnnamedButton = MakeButton(NewOptionsDialog::NewOptionsDialog_ImportUnnamed, this,
+		theApp->GetString("PVZU_OPTIONS_IMPORT_UNNAMED", "Import Unnamed ZIP"));
+	mImportUnnamedButton->SetVisible(pvzu::engine::ImportButtonWanted(theFromGameSelector));
 
 	mBackToGameButton = MakeNewButton(
 		Dialog::ID_OK,
@@ -74,8 +81,9 @@ NewOptionsDialog::NewOptionsDialog(LawnApp* theApp, bool theFromGameSelector) :
 	mSfxVolumeSlider = std::make_unique<Slider>(IMAGE_OPTIONS_SLIDERSLOT, IMAGE_OPTIONS_SLIDERKNOB2, NewOptionsDialog::NewOptionsDialog_SoundVolume, this);
 	mSfxVolumeSlider->SetValue(theApp->GetSfxVolume() / 0.65);
 
-	mFullscreenCheckbox = MakeNewCheckbox(NewOptionsDialog::NewOptionsDialog_Fullscreen, this, !theApp->mIsWindowed);
-	mHardwareAccelerationCheckbox = MakeNewCheckbox(NewOptionsDialog::NewOptionsDialog_HardwareAcceleration, this, theApp->Is3DAccelerated());
+	// PVZU: the two checkbox rows are reused: "Unnamed Mode" (was 3D Acceleration) and "Chinese Text" (was Full Screen)
+	mFullscreenCheckbox = MakeNewCheckbox(NewOptionsDialog::NewOptionsDialog_Fullscreen, this, pvzu::engine::StartupSettings().language == "zh");
+	mHardwareAccelerationCheckbox = MakeNewCheckbox(NewOptionsDialog::NewOptionsDialog_HardwareAcceleration, this, pvzu::engine::StartupSettings().mode == pvzu::GameMode::Unnamed);
 
 	if (mFromGameSelector)
 	{
@@ -124,6 +132,7 @@ void NewOptionsDialog::AddedToManager(Sexy::WidgetManager* theWidgetManager)
 	AddWidget(mAlmanacButton.get());
 	AddWidget(mRestartButton.get());
 	AddWidget(mBackToMainButton.get());
+	AddWidget(mImportUnnamedButton.get()); // PVZU
 	AddWidget(mMusicVolumeSlider.get());
 	AddWidget(mSfxVolumeSlider.get());
 	AddWidget(mHardwareAccelerationCheckbox.get());
@@ -142,6 +151,7 @@ void NewOptionsDialog::RemovedFromManager(Sexy::WidgetManager* theWidgetManager)
 	RemoveWidget(mBackToMainButton.get());
 	RemoveWidget(mBackToGameButton.get());
 	RemoveWidget(mRestartButton.get());
+	RemoveWidget(mImportUnnamedButton.get()); // PVZU
 }
 
 void NewOptionsDialog::Resize(int theX, int theY, int theWidth, int theHeight)
@@ -154,6 +164,9 @@ void NewOptionsDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	mAlmanacButton->Resize(107, 241, 209, 46);
 	mRestartButton->Resize(mAlmanacButton->mX, mAlmanacButton->mY + 43, 209, 46);
 	mBackToMainButton->Resize(mRestartButton->mX, mRestartButton->mY + 43, 209, 46);
+	const pvzu::ImportButtonBox aImportBox = pvzu::ImportButtonRect(FONT_DWARVENTODCRAFT18GREENINSET->StringWidth(mImportUnnamedButton->mLabel), // PVZU
+		{IMAGE_BUTTON_LEFT->mWidth, IMAGE_BUTTON_MIDDLE->mWidth, IMAGE_BUTTON_RIGHT->mWidth});
+	mImportUnnamedButton->Resize(aImportBox.x, aImportBox.y, aImportBox.w, aImportBox.h); // PVZU
 	mBackToGameButton->Resize(30, 381, mBackToGameButton->mWidth, mBackToGameButton->mHeight);
 
 	if (mFromGameSelector)
@@ -194,8 +207,8 @@ void NewOptionsDialog::Draw(Sexy::Graphics* g)
 		g->SetScale(aFontScale, aFontScale, 0.0f, 0.0f);
 	PvzpDrawString(g, mApp->GetString("OPTIONS_MUSIC_LABEL", "Music"), aSliderLabelsX, 140 + aMusicOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
 	PvzpDrawString(g, mApp->GetString("OPTIONS_SOUNDFX", "Sound FX"), aSliderLabelsX, 167 + aSfxOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
-	PvzpDrawString(g, mApp->GetString("OPTIONS_3D_ACCELERATION", "3D Acceleration"), aCheckboxLabelsX, 197 + a3DAccelOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
-	PvzpDrawString(g, mApp->GetString("OPTIONS_FULL_SCREEN", "Full Screen"), aCheckboxLabelsX, 229 + aFullScreenOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
+	PvzpDrawString(g, mApp->GetString("PVZU_OPTIONS_UNNAMED_MODE", "Unnamed Mode"), aCheckboxLabelsX, 197 + a3DAccelOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT); // PVZU
+	PvzpDrawString(g, mApp->GetString("PVZU_OPTIONS_CHINESE_TEXT", "Chinese Text"), aCheckboxLabelsX, 229 + aFullScreenOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT); // PVZU
 	if (aFontScale != 1.0f)
 		g->SetScale(1.0f, 1.0f, 0.0f, 0.0f);
 }
@@ -222,62 +235,36 @@ void NewOptionsDialog::SliderVal(int theId, double theVal)
 
 void NewOptionsDialog::CheckboxChecked(int theId, bool checked)
 {
+	// PVZU: both rows are now settings read at start-up; changes apply after a restart.
+	pvzu::Settings aSettings = pvzu::engine::StartupSettings();
 	switch (theId)
 	{
-	case NewOptionsDialog::NewOptionsDialog_Fullscreen:
-		if (!checked && mApp->mForceFullscreen)
+	case NewOptionsDialog::NewOptionsDialog_HardwareAcceleration: // "Unnamed Mode"
+	{
+		std::string anError;
+		if (checked && !pvzu::engine::UnnamedPackInstalled(&anError))
 		{
-			mApp->DoDialog(
-				Dialogs::DIALOG_COLORDEPTH_EXP,
-				true,
-				mApp->GetString("NO_WINDOWED_MODE", "No Windowed Mode"),
-				mApp->GetString("INVALID_WINDOWS_MODE",
-					"Windowed mode is only available if your desktop was running in either\n"
-					"16 bit or 32 bit color mode when you started the game.\n\n"
-					"If you'd like to run in Windowed mode then you need to quit the game and switch your desktop to 16 or 32 bit color mode."),
-				"[DIALOG_BUTTON_OK]",
-				Dialog::BUTTONS_FOOTER
-			);
-
-			mFullscreenCheckbox->SetChecked(true, false);
+			mHardwareAccelerationCheckbox->SetChecked(false, false);
+			mApp->DoDialog(Dialogs::DIALOG_INFO, true,
+				mApp->GetString("PVZU_UNNAMED_MISSING_TITLE", "Unnamed Not Installed"),
+				mApp->GetString("PVZU_UNNAMED_MISSING", "Import your Unnamed zip first\n(app icon: long-press, Manage Data)."),
+				"[DIALOG_BUTTON_OK]", Dialog::BUTTONS_FOOTER);
+			return;
 		}
-		break;
-
-	case NewOptionsDialog::NewOptionsDialog_HardwareAcceleration:
-		if (checked)
-		{
-			if (!mApp->Is3DAccelerationSupported())
-			{
-				mHardwareAccelerationCheckbox->SetChecked(false, false);
-				mApp->DoDialog(
-					Dialogs::DIALOG_INFO,
-					true,
-					mApp->GetString("NOT_SUPPORTED", "Not Supported"),
-					mApp->GetString("HARDWARE_ACCELERATION_NOT_SUPPORTED",
-						"Hardware Acceleration cannot be enabled on this computer.\n\n"
-						"Your video card does not\n"
-						"meet the minimum requirements\n"
-						"for this game."),
-					"[DIALOG_BUTTON_OK]",
-					Dialog::BUTTONS_FOOTER
-				);
-			}
-			else if (!mApp->Is3DAccelerationRecommended())
-			{
-				mApp->DoDialog(
-					Dialogs::DIALOG_INFO,
-					true,
-					mApp->GetString("DIALOG_WARNING", "Warning"),
-					mApp->GetString("SLOW_PERFORMANCE",
-						"Your video card may not fully support this feature.\n\n"
-						"If you experience slower performance, please disable Hardware Acceleration."),
-					"[DIALOG_BUTTON_OK]",
-					Dialog::BUTTONS_FOOTER
-				);
-			}
-		}
+		aSettings.mode = checked ? pvzu::GameMode::Unnamed : pvzu::GameMode::Vanilla;
 		break;
 	}
+	case NewOptionsDialog::NewOptionsDialog_Fullscreen: // "Chinese Text"
+		aSettings.language = checked ? "zh" : "en";
+		break;
+	default:
+		return;
+	}
+	pvzu::engine::SaveWantedSettings(aSettings);
+	mApp->DoDialog(Dialogs::DIALOG_INFO, true,
+		mApp->GetString("PVZU_RESTART_TITLE", "Restart Needed"),
+		mApp->GetString("PVZU_RESTART", "Close and reopen the game\nto apply this change."),
+		"[DIALOG_BUTTON_OK]", Dialog::BUTTONS_FOOTER);
 }
 
 void NewOptionsDialog::KeyDown(Sexy::KeyCode theKey)
@@ -386,5 +373,29 @@ void NewOptionsDialog::ButtonDepress(int theId)
 	case NewOptionsDialog::NewOptionsDialog_Update:
 		mApp->CheckForUpdates();
 		break;
+
+	case NewOptionsDialog::NewOptionsDialog_ImportUnnamed: // PVZU: the result comes back in Update
+		if (!pvzu::engine::StartUnnamedZipImport())
+			mApp->DoDialog(Dialogs::DIALOG_INFO, true,
+				mApp->GetString("PVZU_IMPORT_FAILED_TITLE", "Import Failed"),
+				mApp->GetString("PVZU_IMPORT_NO_PICKER", "Could not open the file picker."),
+				"[DIALOG_BUTTON_OK]", Dialog::BUTTONS_FOOTER);
+		break;
 	}
+}
+
+// PVZU: the Unnamed zip picker came back (Mod/ZipImport.h says what to tell the player)
+void NewOptionsDialog::Update()
+{
+	Dialog::Update();
+	auto aResult = pvzu::engine::TakeUnnamedImportResult();
+	if (!aResult)
+		return;
+	const pvzu::ImportMessage aMessage = pvzu::ImportDoneMessage(*aResult, pvzu::engine::StartupSettings().mode == pvzu::GameMode::Unnamed);
+	if (aMessage.reply == pvzu::ImportReply::None)
+		return;
+	mApp->DoDialog(Dialogs::DIALOG_INFO, true,
+		mApp->GetString(aMessage.titleKey, aMessage.title),
+		pvzu::FillImportBody(mApp->GetString(aMessage.bodyKey, aMessage.bodyTemplate), *aResult),
+		"[DIALOG_BUTTON_OK]", Dialog::BUTTONS_FOOTER);
 }

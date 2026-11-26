@@ -22,6 +22,7 @@
 #ifndef __ZOMBIE_H__
 #define __ZOMBIE_H__
 
+#include "Mod/Unnamed/State.h" // PVZU
 #include <cstdint>
 #include "GameObject.h"
 #include "../GameConstants.h"
@@ -74,6 +75,7 @@ class PvzpParticleSystem;
 class Zombie : public GameObject
 {
 public:
+	pvzu::unnamed::ZombieState mPvzu{}; // PVZU: Unnamed per-zombie state (elite form etc.; zero in vanilla)
 	enum
 	{
 		ZOMBIE_WAVE_DEBUG = -1,

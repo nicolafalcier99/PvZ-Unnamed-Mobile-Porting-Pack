@@ -29,6 +29,13 @@
 #include "ZenGarden.h"
 #include "LawnMower.h"
 #include "Challenge.h"
+#include "Mod/Engine/WideScreen.h" // PVZU
+#include "Mod/Engine/ModModes.h" // PVZU: mod-only modes
+#include "Mod/Engine/ModesVanilla.h" // PVZU
+#include "Mod/Engine/VasePole.h" // PVZU: Plan 9 R2 vase pole
+#include "Mod/Engine/OptionsPanel.h" // PVZU: V2 conveyor step (double sun)
+#include "Mod/GameData.h" // PVZU
+#include "Mod/Engine/OptionsPanel.h" // PVZU: R8 rain / gravestone options
 #include "SeedPacket.h"
 #include "Projectile.h"
 #include "../LawnApp.h"
@@ -1381,7 +1388,10 @@ void Challenge::UpdateConveyorBelt()
 		return;
 
 	mBoard->mSeedBank->UpdateConveyorBelt();
-	mConveyorBeltCounter--;
+	if (pvzu::engine::OptionsPanelOn()) // PVZU: V2 double sun / fast step the countdown by 2 / 4 (hook 161)
+		mConveyorBeltCounter = pvzu::unnamed::ConveyorStepDown(mConveyorBeltCounter, pvzu::engine::ConveyorStep(mBoard));
+	else
+		mConveyorBeltCounter--;
 	if (mConveyorBeltCounter > 0)
 		return;
 
@@ -1608,6 +1618,10 @@ void Challenge::UpdateConveyorBelt()
 		aSeedPickArray[4].mWeight = 30;
 		aSeedPickArray[5].mItem = SEED_ICESHROOM;
 		aSeedPickArray[5].mWeight = 10;
+		pvzu::engine::ModesConveyorPicks(mApp, aSeedPickArray, aSeedPickCount); // PVZU: V2 Unnamed Invisi-ghoul picks (0x423250)
+	}
+	else if (pvzu::engine::ModModeConveyorSeeds(mBoard, aSeedPickArray, aSeedPickCount)) // PVZU: mod modes 0x71/0x81/0x84 (hook 162)
+	{
 	}
 	else PVZP_ASSERT(false);
 
@@ -1887,7 +1901,7 @@ void Challenge::ZombieAtePlant(/*Zombie* theZombie,*/ Plant* thePlant)
 
 void Challenge::Update()
 {
-	if (mApp->IsStormyNightLevel())
+	if (mApp->IsStormyNightLevel() || pvzu::engine::RainOption() == 2) // PVZU: rain option "storm" (hook 163)
 		UpdateStormyNight();
 
 	if (mBoard->mPaused)
@@ -1900,7 +1914,7 @@ void Challenge::Update()
 		return;
 	}
 
-	if (mApp->mGameMode == GAMEMODE_CHALLENGE_RAINING_SEEDS || mApp->IsStormyNightLevel())
+	if (mApp->mGameMode == GAMEMODE_CHALLENGE_RAINING_SEEDS || mApp->IsStormyNightLevel() || pvzu::engine::ModModeRains(mApp) || pvzu::engine::RainOption() != 0) // PVZU: 0x74, rain option (hook 164)
 	{
 		UpdateRain();
 	}
@@ -1987,6 +2001,8 @@ void Challenge::Update()
 
 SeedType Challenge::GetArtChallengeSeed(int theGridX, int theGridY)
 {
+	if (SeedType aPvzuSeed; pvzu::engine::ModModeArtSeed(mBoard, theGridX, theGridY, aPvzuSeed)) // PVZU: mod mode 0x88 claims (hook 168)
+		return aPvzuSeed;
 	if (theGridY < 6)
 	{
 		PVZP_ASSERT(theGridX >= 0 && theGridX < ART_CHALLEGE_SIZE_X && theGridY >= 0);
@@ -2137,7 +2153,7 @@ void Challenge::DrawSlotMachine(Graphics* g)
 void Challenge::DrawBackdrop(Graphics* g)
 {
 	GameMode aGameMode = mApp->mGameMode;
-	if (mApp->IsArtChallenge())
+	if (mApp->IsArtChallenge() || pvzu::engine::ModModeArtGrid(mApp)) // PVZU: mod mode 0x88 ghosts (hook 170)
 	{
 		DrawArtChallenge(g);
 	}
@@ -2153,6 +2169,10 @@ void Challenge::DrawBackdrop(Graphics* g)
 	if (mApp->IsWallnutBowlingLevel() && mShowBowlingLine)
 	{
 		g->DrawImage(Sexy::IMAGE_WALLNUT_BOWLINGSTRIPE, 268, 77);
+	}
+	else if (pvzu::engine::ModModeItemMode(mApp) == 3) // PVZU: mod mode 0x90, the glove's column limit (hook 171)
+	{
+		g->DrawImage(Sexy::IMAGE_WALLNUT_BOWLINGSTRIPE, 340, 77);
 	}
 	if (mApp->mGameMode == GAMEMODE_PUZZLE_I_ZOMBIE_1 || mApp->mGameMode == GAMEMODE_PUZZLE_I_ZOMBIE_2 || mApp->mGameMode == GAMEMODE_PUZZLE_I_ZOMBIE_3 ||
 		mApp->mGameMode == GAMEMODE_PUZZLE_I_ZOMBIE_4 || mApp->mGameMode == GAMEMODE_PUZZLE_I_ZOMBIE_5)
@@ -2222,10 +2242,18 @@ PlantingReason Challenge::CanPlantAt(int theGridX, int theGridY, SeedType theSee
 			return theGridX >= aLimit ? PLANTING_OK : PLANTING_NOT_HERE;
 		}
 	}
+	else if (pvzu::engine::ModModeArtGrid(mApp)) // PVZU: mod mode 0x88, claimed cells (hook 174)
+	{
+		if (pvzu::engine::ModModeArtRefuses(mBoard, theGridX, theGridY, theSeedType))
+		{
+			return PLANTING_NOT_ON_ART;
+		}
+	}
 	else if (mApp->IsArtChallenge())
 	{
 		SeedType anArtSeed = GetArtChallengeSeed(theGridX, theGridY);
-		if (anArtSeed != SEED_NONE && anArtSeed != theSeedType && theSeedType != SEED_LILYPAD && theSeedType != SEED_PUMPKINSHELL)
+		if (anArtSeed != SEED_NONE && anArtSeed != theSeedType && theSeedType != SEED_LILYPAD && theSeedType != SEED_PUMPKINSHELL &&
+			!pvzu::engine::ModesArtIgnoresPicture(theSeedType)) // PVZU: Unnamed adds the Grave Buster (hook 175)
 		{
 			return PLANTING_NOT_ON_ART;
 		}
@@ -2486,6 +2514,7 @@ void Challenge::InitZombieWaves()
 
 	if (mApp->CanSpawnYetis() && !mApp->IsWhackAZombieLevel() && !mApp->IsLittleTroubleLevel())
 		aList[ZOMBIE_YETI] = true;
+	pvzu::engine::ModesAllowList(this); // PVZU: Unnamed per-mode allow lists (hooks 177-180); log line with -pvzu-log-waves
 }
 
 void Challenge::WhackAZombiePlaceGraves(int theGraveCount)
@@ -2539,7 +2568,7 @@ void Challenge::WhackAZombieSpawning()
 	mBoard->mZombieCountDown--;
 	if (mBoard->mZombieCountDown == 100 && mBoard->mCurrentWave > 0)
 	{
-		int aNumGraves = 5 - mBoard->GetGraveStonesCount();
+		int aNumGraves = pvzu::engine::ModesWhackGraveTarget(5) - mBoard->GetGraveStonesCount(); // PVZU: V2 Unnamed 30 (0x426043)
 		WhackAZombiePlaceGraves(std::max(1, aNumGraves));
 	}
 	if (mBoard->mZombieCountDown == 5)
@@ -2566,7 +2595,7 @@ void Challenge::WhackAZombieSpawning()
 		const int aTripleChance[6] = { 0, 0, 0, 0, 10, 13 };
 		const int aPailChance[6] = { 0, 0, 0, 10, 15, 15 };
 		const int aConeChance[6] = { 0, 0, 30, 30, 30, 30 };
-		int aZombieCount = 1;
+		int aZombieCount = pvzu::engine::ModesWhackGroupSize(1); // PVZU: V2 Unnamed 4 (0x42618f)
 		ZombieType aZombieType = ZOMBIE_NORMAL;
 		int aNumHit = Rand(100);
 		int aTypeHit = Rand(100);
@@ -2735,7 +2764,7 @@ void Challenge::SpawnZombieWave()
 	}
 
 	int aIsFlagWave = mBoard->IsFlagWave(mBoard->mCurrentWave);
-	if (mApp->mGameMode == GAMEMODE_CHALLENGE_GRAVE_DANGER && mBoard->mCurrentWave != mBoard->mNumWaves - 1)
+	if ((mApp->mGameMode == GAMEMODE_CHALLENGE_GRAVE_DANGER || pvzu::engine::GravestonesOn()) && mBoard->mCurrentWave != mBoard->mNumWaves - 1) // PVZU: gravestone option (hook 182)
 	{
 		if (aIsFlagWave)
 		{
@@ -2743,7 +2772,8 @@ void Challenge::SpawnZombieWave()
 		}
 		else if (mBoard->mCurrentWave > 5)
 		{
-			GraveDangerSpawnRandomGrave();
+			for (int aPvzuGrave = pvzu::engine::ModesGraveDangerGraves(); aPvzuGrave > 0; aPvzuGrave--) // PVZU: Unnamed x5 (hook 184)
+				GraveDangerSpawnRandomGrave();
 		}
 	}
 	if (mApp->IsSurvivalMode() && mBoard->mBackground == BACKGROUND_2_NIGHT && mBoard->mCurrentWave == mBoard->mNumWaves - 1)
@@ -2774,10 +2804,10 @@ void Challenge::DrawStormFlash(Graphics* g, int theTime, int theMaxAmount)
 
 void Challenge::DrawWeather(Graphics* g)
 {
-	if (mApp->IsStormyNightLevel() || mApp->mGameMode == GAMEMODE_CHALLENGE_RAINING_SEEDS)
+	if (mApp->IsStormyNightLevel() || mApp->mGameMode == GAMEMODE_CHALLENGE_RAINING_SEEDS || pvzu::engine::ModModeRains(mApp) || pvzu::engine::RainOption() != 0) // PVZU: 0x74, rain option (hook 185)
 		DrawRain(g);
 
-	if (mApp->IsStormyNightLevel())
+	if (mApp->IsStormyNightLevel() || pvzu::engine::RainOption() == 2) // PVZU: rain option "storm" (hook 186)
 		DrawStormNight(g);
 }
 
@@ -3400,8 +3430,8 @@ void Challenge::ZombiquariumUpdate()
 	if (aScore >= 110 && mBoard->mTutorialState == TUTORIAL_OFF)
 	{
 		mBoard->mTutorialState = TUTORIAL_ZOMBIQUARIUM_BUY_SNORKEL;
-		float aPosX = mBoard->mSeedBank->mX + mBoard->mSeedBank->mSeedPackets[0].mX;
-		float aPosY = mBoard->mSeedBank->mY + mBoard->mSeedBank->mSeedPackets[0].mY;
+		int aPosX, aPosY;
+		pvzu::engine::SeedPacketArrowOrigin(mBoard, 0, aPosX, aPosY); // PVZU: centred under a panel card
 		mBoard->TutorialArrowShow(aPosX, aPosY);
 		mBoard->DisplayAdvice("[ADVICE_ZOMBIQUARIUM_BUY_SNORKEL]", MESSAGE_STYLE_HINT_TALL_FAST, ADVICE_ZOMBIQUARIUM_BUY_SNORKEL);
 	}
@@ -3414,8 +3444,8 @@ void Challenge::ZombiquariumUpdate()
 	if (aScore >= ZOMBIQUARIUM_WINNING_SCORE && mBoard->mTutorialState == TUTORIAL_ZOMBIQUARIUM_BOUGHT_SNORKEL)
 	{
 		mBoard->mTutorialState = TUTORIAL_ZOMBIQUARIUM_CLICK_TROPHY;
-		float aPosX = mBoard->mSeedBank->mX + mBoard->mSeedBank->mSeedPackets[1].mX;
-		float aPosY = mBoard->mSeedBank->mY + mBoard->mSeedBank->mSeedPackets[1].mY;
+		int aPosX, aPosY;
+		pvzu::engine::SeedPacketArrowOrigin(mBoard, 1, aPosX, aPosY); // PVZU: centred under a panel card
 		mBoard->TutorialArrowShow(aPosX, aPosY);
 		mBoard->DisplayAdvice("[ADVICE_ZOMBIQUARIUM_CLICK_TROPHY]", MESSAGE_STYLE_HINT_TALL_FAST, ADVICE_ZOMBIQUARIUM_CLICK_TROPHY);
 	}
@@ -3548,7 +3578,10 @@ void Challenge::ScaryPotterPopulate()
 		}
 	}
 
-	if (mApp->IsAdventureMode() && mBoard->mLevel == 35)
+	if (pvzu::engine::ModModeScaryPopulate(this, aGridArray, aGridArrayCount)) // PVZU: mod modes 0x7d / 0x8f (hooks 158, 187)
+	{
+	}
+	else if (mApp->IsAdventureMode() && mBoard->mLevel == 35)
 	{
 		switch (mSurvivalStage)
 		{
@@ -3880,11 +3913,19 @@ void Challenge::ScaryPotterOpenPot(GridItem* theScaryPot)
 		mBoard->AddCoin(aXPos + 20, aYPos, COIN_USABLE_SEED_PACKET, COIN_MOTION_FROM_PLANT)->mUsableSeedType = theScaryPot->mSeedType;
 		break;
 	case SCARYPOT_ZOMBIE:
-		mBoard->AddZombieInRow(theScaryPot->mZombieType, theScaryPot->mGridY, 0)->mPosX = aXPos;
+	{
+		Zombie* aPvzuZombie = mBoard->AddZombieInRow(theScaryPot->mZombieType, theScaryPot->mGridY, 0);
+		aPvzuZombie->mPosX = aXPos;
+		pvzu::engine::ModModePotZombie(this, theScaryPot, aPvzuZombie); // PVZU: mod mode 0x8f probe boss (hook 189)
+		if (pvzu::GameData::Get().Feature("vasePole")) // PVZU: a vase-pole vase sets its zombie's side (hook 189, 0x9594b3)
+			pvzu::engine::VasePolePotZombie(theScaryPot, aPvzuZombie);
 		break;
+	}
 	case SCARYPOT_SUN:
 	{
 		int aSunCount = ScaryPotterCountSunInPot(theScaryPot);
+		if (pvzu::engine::ModesScaryPotDirectSun(this, aSunCount)) // PVZU: Unnamed: 16+ sun goes to the bank (hook 188)
+			aSunCount = 0;
 		for (int i = 0; i < aSunCount; i++)
 		{
 			mBoard->AddCoin(aXPos + 15 * i, aYPos, COIN_SUN, COIN_MOTION_FROM_PLANT);
@@ -3902,7 +3943,7 @@ void Challenge::ScaryPotterOpenPot(GridItem* theScaryPot)
 	{
 		mBoard->DisplayAdvice("[ADVICE_DESTROY_POTS_TO_FINISH_LEVEL]", MESSAGE_STYLE_HINT_FAST, ADVICE_DESTORY_POTS_TO_FINISIH_LEVEL);
 	}
-	if (ScaryPotterIsCompleted())
+	if (ScaryPotterIsCompleted() && (!pvzu::GameData::Get().Feature("vasePole") || pvzu::engine::VasePoleAwardAllowed(this))) // PVZU: no award from a vase-pole landing outside Vasebreaker
 	{
 		if (mApp->IsScaryPotterLevel() && !mBoard->IsFinalScaryPotterStage())
 		{
@@ -4009,7 +4050,7 @@ ZombieType Challenge::IZombieSeedTypeToZombieType(SeedType theSeedType)
 	case SEED_ZOMBIE_LADDER:		return ZOMBIE_LADDER;
 	case SEED_ZOMBIE_DIGGER:		return ZOMBIE_DIGGER;
 	case SEED_ZOMBIE_BUNGEE:		return ZOMBIE_BUNGEE;
-	case SEED_ZOMBIE_FOOTBALL:		return ZOMBIE_FOOTBALL;
+	case SEED_ZOMBIE_FOOTBALL:		return pvzu::engine::ModesIZombieCardZombie(theSeedType, ZOMBIE_FOOTBALL); // PVZU: Newspaper toggle (hook 190)
 	case SEED_ZOMBIE_BALLOON:		return ZOMBIE_BALLOON;
 	case SEED_ZOMBIE_SCREEN_DOOR:	return ZOMBIE_DOOR;
 	case SEED_ZOMBONI:				return ZOMBIE_ZAMBONI;
@@ -4026,6 +4067,7 @@ ZombieType Challenge::IZombieSeedTypeToZombieType(SeedType theSeedType)
 void Challenge::IZombiePlaceZombie(ZombieType theZombieType, int theGridX, int theGridY)
 {
 	Zombie* aZombie = mBoard->AddZombieInRow(theZombieType, theGridY, 0);
+	pvzu::engine::ModesIZombiePlaced(aZombie); // PVZU: a Bungee carrying a zombie (hook 193)
 	if (theZombieType == ZOMBIE_BUNGEE)
 	{
 		aZombie->mTargetCol = theGridX;
@@ -4055,8 +4097,10 @@ void Challenge::IZombieMouseDownWithZombie(int theX, int theY, int theClickCount
 				{
 					mBoard->ClearAdvice(ADVICE_I_ZOMBIE_LEFT_OF_LINE);
 					mBoard->ClearAdvice(ADVICE_I_ZOMBIE_NOT_PASSED_LINE);
-					ZombieType aZombieType = IZombieSeedTypeToZombieType(aSeedType);
+					ZombieType aZombieType = pvzu::engine::ModModeIZombieCard(mBoard, IZombieSeedTypeToZombieType(aSeedType), aSeedType); // PVZU: 0x8c (hook 191)
+					pvzu::engine::ModesIZombieBeforePlace(mBoard, aZombieType); // PVZU: Dancer / Bungee companions (hook 193)
 					IZombiePlaceZombie(aZombieType, aGridX, aGridY);
+					pvzu::engine::ModesIZombieAfterPlace(); // PVZU
 
 					PVZP_ASSERT(mBoard->mCursorObject->mSeedBankIndex >= 0 && mBoard->mCursorObject->mSeedBankIndex < mBoard->mSeedBank->mNumPackets);
 					mBoard->mSeedBank->mSeedPackets[mBoard->mCursorObject->mSeedBankIndex].WasPlanted();
@@ -4126,6 +4170,7 @@ void Challenge::IZombiePlacePlants(SeedType theSeedType, int theCount, int theGr
 	{
 		aColumns = 5;
 	}
+	aColumns = pvzu::engine::ModModeIZombieColumns(mApp, aColumns); // PVZU: mod mode 0x8c, all 9 columns (hook 194)
 
 	// Only spawn between rows aMinGridY and aMaxGridY
 	int aMinGridY, aMaxGridY;
@@ -4187,6 +4232,7 @@ void Challenge::IZombieInitLevel()
 		aBrain->mPosY = mBoard->GridToPixelY(0, aRow) + 40;
 	}
 
+	pvzu::engine::ModModeIZombiePlants(this); // PVZU: mod mode 0x8c, 45 Imitaters (hook 195)
 	switch (mApp->mGameMode)
 	{
 	case GAMEMODE_PUZZLE_I_ZOMBIE_1:

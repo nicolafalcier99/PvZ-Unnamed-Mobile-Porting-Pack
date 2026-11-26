@@ -63,6 +63,11 @@ public:
 	virtual int				GetMusicOrder(int) { return -1; }
 	virtual bool			JumpToOrder(int, int) { return false; }
 	virtual bool			SetChannelVolume(int, int, double) { return false; }
+
+	// PVZU: what a loaded song is, for -pvzu-log-music: length and play position in seconds (-1 = unknown), decoder
+	virtual double			GetSongSeconds(int) { return -1.0; }
+	virtual double			GetSongPositionSeconds(int) { return -1.0; }
+	virtual std::string		GetSongDecoder(int) { return {}; }
 };
 }
 

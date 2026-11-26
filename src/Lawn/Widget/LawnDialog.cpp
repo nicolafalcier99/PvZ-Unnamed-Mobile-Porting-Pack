@@ -31,6 +31,7 @@
 #include "../../PvzpLib/EffectSystem.h"
 #include "../../PvzpLib/PvzpStringFile.h"
 #include "graphics/ImageFont.h"
+#include "Mod/EndScreens.h" // PVZU: Main Menu button at the right edge
 
 constexpr const int DIALOG_HEADER_OFFSET = 45;
 
@@ -467,7 +468,7 @@ GameOverDialog::GameOverDialog(const std::string& theMessage, bool theShowChalle
 	mClip = false;
 
 	mMenuButton = MakeButton(1, this, "[MAIN_MENU_BUTTON]");
-	mMenuButton->Resize(635 - mX, -10 - mY, 163, 46);
+	mMenuButton->Resize(pvzu::GameOverMenuButtonScreenX(pvzu::CurrentLayout()) - mX, -10 - mY, 163, 46); // PVZU: right edge (vanilla 635)
 
 	gLawnApp->mBoard->mShowShovel = false;
 	gLawnApp->mBoard->mMenuButton->mBtnNoDraw = true;
@@ -539,6 +540,6 @@ void GameOverDialog::MouseDrag(int x, int y)
 	LawnDialog::MouseDrag(x, y);
 	if (mMenuButton)
 	{
-		mMenuButton->Resize(635 - mX, -10 - mY, 163, 46);
+		mMenuButton->Resize(pvzu::GameOverMenuButtonScreenX(pvzu::CurrentLayout()) - mX, -10 - mY, 163, 46); // PVZU: right edge (vanilla 635)
 	}
 }

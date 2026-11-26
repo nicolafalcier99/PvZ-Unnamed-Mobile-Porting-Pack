@@ -24,6 +24,7 @@
 
 #include <cstdint>
 #include "../ConstEnums.h"
+#include "Mod/Unnamed/State.h" // PVZU
 
 constexpr const int NUM_MOTION_TRAIL_FRAMES = 12;
 
@@ -69,6 +70,7 @@ public:
 	int32_t					mSunCount;
 	MotionTrailFrame		mMotionTrailFrames[NUM_MOTION_TRAIL_FRAMES];
 	int32_t					mMotionTrailCount;
+	pvzu::unnamed::GridState mPvzu{}; // PVZU: Unnamed per-grid-item state (vase-pole vase side; zero in vanilla)
 
 public:
 	GridItem();

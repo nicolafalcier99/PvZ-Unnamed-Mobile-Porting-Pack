@@ -56,6 +56,7 @@ public class PvZPortableActivity extends SDLActivity {
             return;
         }
 
+        UnnamedImport.installBundledPack(this, extDir); // PVZU: keep the bundled Unnamed pack (numbers, English text) current
         super.onCreate(savedInstanceState);
         hideSystemUI();
         setupImeLayoutAdjustment();
@@ -134,6 +135,32 @@ public class PvZPortableActivity extends SDLActivity {
             });
         } else {
             getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
+        }
+    }
+
+    // PVZU: Options → "Import Unnamed ZIP" (src/Mod/Engine/ZipImport.cpp calls this over JNI from the game thread).
+    // Opens the Manage Data screen straight on its Unnamed zip picker; it reports back with reportUnnamedImport and
+    // brings this activity to the front again. Not startActivityForResult: this activity is singleInstance, so the
+    // import screen runs in another task and a result would come back cancelled at once.
+    public boolean pvzuOpenUnnamedImport() {
+        runOnUiThread(() -> {
+            Intent intent = new Intent(this, ResourceImportActivity.class);
+            intent.putExtra(ResourceImportActivity.EXTRA_UNNAMED_ONLY, true);
+            startActivity(intent);
+        });
+        return true;
+    }
+
+    // PVZU: outcome 0 cancelled, 1 imported, 2 failed (src/Mod/ZipImport.h ImportOutcomeFromCode)
+    private static native void nativePvzuImportDone(int outcome, int copied, String error);
+
+    static void reportUnnamedImport(int outcome, int copied, String error) {
+        try {
+            nativePvzuImportDone(outcome, copied, error);
+        } catch (UnsatisfiedLinkError e) {
+            // the game's library is not loaded (process restarted on the import screen): the files are imported,
+            // the game simply starts fresh
+            Log.w(TAG, "game not running, import result not passed on");
         }
     }
 

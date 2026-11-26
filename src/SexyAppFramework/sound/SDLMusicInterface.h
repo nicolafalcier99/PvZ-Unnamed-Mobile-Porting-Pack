@@ -24,10 +24,13 @@
 
 #include "MusicInterface.h"
 #include "OpenMptMusic.h"
+#include "Mod/MusicLoop.h" // PVZU
 #include <SDL3/SDL.h>
 #include <SDL3_mixer/SDL_mixer.h>
+#include <cstdint>
 #include <memory>
 #include <mutex>
+#include <vector>
 
 namespace Sexy
 {
@@ -38,12 +41,17 @@ class SDLMusicInfo
 {
 public:
 	std::unique_ptr<OpenMptMusic> mOpenMpt;
+	std::vector<int16_t> mPcm; // PVZU: an mp3 decoded once (mAudio plays it without a copy, so it is declared first)
 	std::unique_ptr<MIX_Audio, decltype(&MIX_DestroyAudio)> mAudio{nullptr, &MIX_DestroyAudio};
 	std::unique_ptr<MIX_Track, decltype(&MIX_DestroyTrack)> mTrack{nullptr, &MIX_DestroyTrack};
 	double mVolume;
 	double mVolumeAdd;
 	double mVolumeCap;
 	bool mStopOnFade;
+	std::string mDecoder; // PVZU: SDL_mixer decoder asked for at load ("MPG123" for mp3, "" = SDL_mixer's choice)
+	bool mHasLoop = false; // PVZU: mp3: play mLoop (Mod/MusicLoop.h) instead of the whole file
+	pvzu::MusicLoop mLoop;
+	int mPcmRate = 0;
 
 	SDLMusicInfo();
 };
@@ -91,6 +99,13 @@ public:
 	int GetMusicOrder(int theSongId) override;
 	bool JumpToOrder(int theSongId, int thePackedOrder) override;
 	bool SetChannelVolume(int theSongId, int theChannel, double theVolume) override;
+
+	double GetSongSeconds(int theSongId) override;          // PVZU: -pvzu-log-music
+	double GetSongPositionSeconds(int theSongId) override;  // PVZU: -pvzu-log-music
+	std::string GetSongDecoder(int theSongId) override;     // PVZU: -pvzu-log-music
+	// PVZU: -pvzu-music-seams: renders 2 s before + 2 s after the loop point of a loaded mp3 the way StartMusic plays
+	// it (offline mixer, same audio and play options) and writes it to a float WAV.
+	bool RenderLoopSeam(int theSongId, const std::string& theWavPath);
 };
 
 }

@@ -19,6 +19,7 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/Capacity.h" // PVZU
 #include "Trail.h"
 #include "Definition.h"
 #include <algorithm>
@@ -270,7 +271,7 @@ void Trail::Draw(Graphics* g)
 
 void TrailHolder::InitializeHolder()
 {
-	mTrails.DataArrayInitialize(1024U, "trails");
+	mTrails.DataArrayInitialize(pvzu::kEffectArrayCapacity, "trails"); // PVZU: was 1024
 }
 
 void TrailHolder::DisposeHolder()

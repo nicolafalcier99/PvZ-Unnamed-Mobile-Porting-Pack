@@ -33,6 +33,17 @@
 #include <cstring>
 #include <mutex>
 #include <vector>
+#include "Mod/Engine/DebugHooks.h" // PVZU
+#include "Mod/Screen.h" // PVZU
+#include "Mod/SideFill.h" // PVZU
+#include "Mod/CmdLine.h" // PVZU
+#include <cmath> // PVZU
+#include <cstdio> // PVZU
+#include "Mod/Engine/WideScreen.h" // PVZU
+#include "Mod/Engine/HdTextures.h" // PVZU
+#include "Mod/HdArt.h" // PVZU
+
+static int gPvzuViewport[4] = {0, 0, 0, 0}; // PVZU: drawable area of the last UpdateViewport, in pixels
 
 constexpr const int MAX_VERTICES = 16384;
 
@@ -93,6 +104,7 @@ struct GfxDrawState
 	GLint useTexture = 0;
 	GLint clampUv = 1;
 	GLint mixedBlend = 0;
+	GLint mip = 0; // PVZU: HD textures minify through their mipmaps
 	float uvBounds[4] = {};
 };
 
@@ -127,10 +139,17 @@ static void SetMixedBlendMode(bool theEnabled)
 	gDrawState.mixedBlend = theEnabled ? 1 : 0;
 }
 
+static bool gPvzuOffscreen = false; // PVZU: drawing into GLInterface::PvzuRenderToBits' texture
+
 static void GfxApplyState(const GfxDrawState& state)
 {
 	if (!gAppliedStateValid || gAppliedState.blendSrc != state.blendSrc || gAppliedState.blendDst != state.blendDst)
-		glBlendFunc(state.blendSrc, state.blendDst);
+	{
+		if (gPvzuOffscreen) // PVZU: keep a coverage alpha in the offscreen texture ("over")
+			glBlendFuncSeparate(state.blendSrc, state.blendDst, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+		else
+			glBlendFunc(state.blendSrc, state.blendDst);
+	}
 	if (!gAppliedStateValid || gAppliedState.useTexture != state.useTexture)
 		glUniform1i(gUfUseTexture, state.useTexture);
 	if (!gAppliedStateValid || gAppliedState.mixedBlend != state.mixedBlend)
@@ -141,10 +160,10 @@ static void GfxApplyState(const GfxDrawState& state)
 		bool aTextureChanged = !gAppliedTextureValid || gAppliedState.texture != state.texture;
 		if (aTextureChanged)
 			glBindTexture(GL_TEXTURE_2D, state.texture);
-		if (aTextureChanged || gAppliedState.filter != state.filter)
+		if (aTextureChanged || gAppliedState.filter != state.filter || gAppliedState.mip != state.mip)
 		{
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, state.filter);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, state.filter);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, state.mip ? GL_LINEAR_MIPMAP_LINEAR : state.filter); // PVZU: mip
 		}
 		if (!gAppliedTextureValid || gAppliedState.clampUv != state.clampUv)
 			glUniform1i(gUfClampUvEnabled, state.clampUv);
@@ -153,6 +172,7 @@ static void GfxApplyState(const GfxDrawState& state)
 
 		gAppliedState.texture = state.texture;
 		gAppliedState.filter = state.filter;
+		gAppliedState.mip = state.mip; // PVZU
 		gAppliedState.clampUv = state.clampUv;
 		memcpy(gAppliedState.uvBounds, state.uvBounds, sizeof(state.uvBounds));
 		gAppliedTextureValid = true;
@@ -203,6 +223,34 @@ static void GfxEnsureSpace(int theAdditional)
 	GfxBegin(oldMode);
 }
 
+// PVZU: board zoom (Mod/Engine/Zoom.h). While set, every vertex is mapped to (scale * x + tx, scale * y + ty) after
+// the Graphics clip, so clipping stays in the coordinates the game drew in.
+static bool gPvzuWorldOn = false;
+static float gPvzuWorld[3] = {1.0f, 0.0f, 0.0f};
+
+static void PvzuApplyWorld(GLVertex* v, int theCount)
+{
+	if (!gPvzuWorldOn) return;
+	for (int i = 0; i < theCount; i++)
+	{
+		v[i].sx = v[i].sx * gPvzuWorld[0] + gPvzuWorld[1];
+		v[i].sy = v[i].sy * gPvzuWorld[0] + gPvzuWorld[2];
+	}
+}
+
+void GLInterface::PvzuSetWorldTransform(float theScale, float theTX, float theTY)
+{
+	gPvzuWorldOn = theScale != 1.0f || theTX != 0.0f || theTY != 0.0f;
+	gPvzuWorld[0] = theScale;
+	gPvzuWorld[1] = theTX;
+	gPvzuWorld[2] = theTY;
+}
+
+void GLInterface::PvzuClearWorldTransform()
+{
+	PvzuSetWorldTransform(1.0f, 0.0f, 0.0f);
+}
+
 static void GfxAddVertices(const GLVertex *arr, int arrCount)
 {
 	if (gVertexMode == (GLenum)-1) return;
@@ -212,6 +260,7 @@ static void GfxAddVertices(const GLVertex *arr, int arrCount)
 	if (arrCount > MAX_VERTICES)
 		gVertices.resize(arrCount);
 	memcpy(gVertices.data() + gNumVertices, arr, sizeof(GLVertex) * arrCount);
+	PvzuApplyWorld(gVertices.data() + gNumVertices, arrCount); // PVZU
 	gNumVertices += arrCount;
 }
 
@@ -243,6 +292,7 @@ static void GfxAddVertices(const TriVertex arr[][3], int arrCount, unsigned int 
 			dst[i].tu    = v[i].u * aMaxTotalU;
 			dst[i].tv    = v[i].v * aMaxTotalV;
 		}
+		PvzuApplyWorld(dst, 3); // PVZU
 		dst += 3;
 		gNumVertices += 3;
 	}
@@ -576,6 +626,53 @@ static void CopyImageToTexture(MemoryImage *img, int offx, int offy,
 	}
 }
 
+// PVZU: one texture piece from an HD twin (ARGB, hdW x hdH): the region at (offx, offy) of texW x texH texels, edge
+// texels repeated into the padding like the logical copies, in the image's pixel format; mipmaps when asked.
+static void PvzuCopyHdToTexture(const uint32_t* theBits, int hdW, int hdH, uint32_t theRenderFlags, int offx, int offy,
+	int texW, int texH, PixelFormat fmt, bool create, bool mip)
+{
+	GLint wrap = (theRenderFlags & RenderImageFlag_Repeat) ? GL_REPEAT : GL_CLAMP_TO_EDGE;
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap);
+
+	const int w = std::min(texW, hdW - offx), h = std::min(texH, hdH - offy);
+	if (w <= 0 || h <= 0)
+		return;
+	const bool is16 = fmt == PixelFormat_R5G6B5 || fmt == PixelFormat_A4R4G4B4;
+	std::vector<uint32_t> a32(is16 ? 0 : static_cast<size_t>(texW) * texH);
+	std::vector<uint16_t> a16(is16 ? static_cast<size_t>(texW) * texH : 0);
+	for (int y = 0; y < texH; y++)
+	{
+		const uint32_t* s = theBits + static_cast<size_t>(offy + std::min(y, h - 1)) * hdW + offx;
+		for (int x = 0; x < texW; x++)
+		{
+			const uint32_t p = s[std::min(x, w - 1)];
+			const size_t i = static_cast<size_t>(y) * texW + x;
+			switch (fmt)
+			{
+			case PixelFormat_R5G6B5:
+				a16[i] = static_cast<uint16_t>(((p >> 8) & 0xF800) | ((p >> 5) & 0x07E0) | ((p >> 3) & 0x001F));
+				break;
+			case PixelFormat_A4R4G4B4:
+				a16[i] = static_cast<uint16_t>(((p >> 8) & 0xF000) | ((p >> 4) & 0x0F00) | (p & 0x00F0) | ((p >> 28) & 0x000F));
+				break;
+			default:
+				a32[i] = ArgbToRgba(p);
+				break;
+			}
+		}
+	}
+	const GLenum aFormat = fmt == PixelFormat_R5G6B5 ? GL_RGB : GL_RGBA;
+	const GLenum aType = fmt == PixelFormat_R5G6B5 ? GL_UNSIGNED_SHORT_5_6_5 : fmt == PixelFormat_A4R4G4B4 ? GL_UNSIGNED_SHORT_4_4_4_4 : GL_UNSIGNED_BYTE;
+	const void* aData = is16 ? static_cast<const void*>(a16.data()) : static_cast<const void*>(a32.data());
+	if (create)
+		glTexImage2D(GL_TEXTURE_2D, 0, aFormat, texW, texH, 0, aFormat, aType, aData);
+	else
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, texW, texH, aFormat, aType, aData);
+	if (mip)
+		glGenerateMipmap(GL_TEXTURE_2D);
+}
+
 static int GetClosestPowerOf2Above(int n)
 {
 	int p = 1;
@@ -637,7 +734,7 @@ static void GetBestTextureDimensions(int &w, int &h, bool isEdge, bool usePow2, 
 TextureData::TextureData()
 	: mWidth(0), mHeight(0), mTexVecWidth(0), mTexVecHeight(0),
 	  mBitsChangedCount(0), mTexMemSize(0), mTexPieceWidth(64), mTexPieceHeight(64),
-	  mPixelFormat(PixelFormat_Unknown), mImageFlags(0)
+	  mPixelFormat(PixelFormat_Unknown), mImageFlags(0), mHdScale(1), mHdMip(false)
 {
 }
 
@@ -653,6 +750,8 @@ void TextureData::ReleaseTextures()
 	for (auto &piece : mTextures)
 		glDeleteTextures(1, &piece.mTexture);
 	mTextures.clear();
+	if (mTexMemSize != 0)
+		pvzu::hd::NoteTextureBytes(-mTexMemSize, mHdScale > 1); // PVZU: -pvzu-log-hd
 	mTexMemSize = 0;
 }
 
@@ -660,6 +759,15 @@ void TextureData::CreateTextureDimensions(MemoryImage *theImage)
 {
 	int aWidth  = theImage->GetWidth();
 	int aHeight = theImage->GetHeight();
+
+	// PVZU: an HD piece holds mHdScale texels per logical pixel; keep it within the GPU's max texture size.
+	const int aSavedMaxW = gMaxTextureWidth, aSavedMaxH = gMaxTextureHeight;
+	if (mHdScale > 1)
+	{
+		gMaxTextureWidth  = pvzu::hd::MaxLogicalPiece(aSavedMaxW, mHdScale);
+		gMaxTextureHeight = pvzu::hd::MaxLogicalPiece(aSavedMaxH, mHdScale);
+	}
+	struct PvzuRestoreMax { int w, h; ~PvzuRestoreMax() { gMaxTextureWidth = w; gMaxTextureHeight = h; } } aPvzuRestore{aSavedMaxW, aSavedMaxH};
 
 	mTexPieceWidth  = aWidth;
 	mTexPieceHeight = aHeight;
@@ -720,14 +828,21 @@ void TextureData::CreateTextures(MemoryImage *theImage)
 	if (aFormat == PixelFormat_A8R8G8B8 && !(gSupportedPixelFormats & PixelFormat_A8R8G8B8))
 		aFormat = PixelFormat_A4R4G4B4;
 
+	// PVZU: HD art: a valid twin's pixels go to the GPU instead of the image's own (same pieces, same UVs).
+	pvzu::hd::Twin* aTwin = pvzu::hd::TwinForUpload(theImage, MAX_TEXTURE_SIZE);
+	const int aHdScale = aTwin != nullptr ? aTwin->scale : 1;
+
 	bool createTextures = false;
 	if (mWidth != theImage->mWidth || mHeight != theImage->mHeight
 		|| aFormat != mPixelFormat
-		|| (theImage->mRenderFlags & RenderImageFlag_TextureMask) != mImageFlags)
+		|| (theImage->mRenderFlags & RenderImageFlag_TextureMask) != mImageFlags
+		|| aHdScale != mHdScale) // PVZU
 	{
 		ReleaseTextures();
 		mPixelFormat = aFormat;
 		mImageFlags  = theImage->mRenderFlags & RenderImageFlag_TextureMask;
+		mHdScale = aHdScale; // PVZU
+		mHdMip = aHdScale > 1;
 		CreateTextureDimensions(theImage);
 		createTextures = true;
 	}
@@ -737,6 +852,7 @@ void TextureData::CreateTextures(MemoryImage *theImage)
 	int fmtSize = (aFormat == PixelFormat_R5G6B5 || aFormat == PixelFormat_A4R4G4B4) ? 2 : 4;
 
 	int idx = 0;
+	const int aMemBefore = mTexMemSize; // PVZU
 	for (int y = 0; y < aHeight; y += mTexPieceHeight)
 	{
 		for (int x = 0; x < aWidth; x += mTexPieceWidth, idx++)
@@ -745,12 +861,22 @@ void TextureData::CreateTextures(MemoryImage *theImage)
 			if (createTextures)
 			{
 				glGenTextures(1, &piece.mTexture);
-				mTexMemSize += piece.mWidth * piece.mHeight * fmtSize;
+				if (aTwin != nullptr) // PVZU
+					mTexMemSize += static_cast<int>(pvzu::hd::PieceBytes(piece.mWidth, piece.mHeight, aHdScale, fmtSize, mHdMip));
+				else
+					mTexMemSize += piece.mWidth * piece.mHeight * fmtSize;
 			}
 			glBindTexture(GL_TEXTURE_2D, piece.mTexture);
-			CopyImageToTexture(theImage, x, y, piece.mWidth, piece.mHeight, aFormat, createTextures);
+			if (aTwin != nullptr) // PVZU
+				PvzuCopyHdToTexture(aTwin->bits.get(), aTwin->hdW, aTwin->hdH, theImage->mRenderFlags, x * aHdScale, y * aHdScale,
+					piece.mWidth * aHdScale, piece.mHeight * aHdScale, aFormat, createTextures, mHdMip);
+			else
+				CopyImageToTexture(theImage, x, y, piece.mWidth, piece.mHeight, aFormat, createTextures);
 		}
 	}
+	if (mTexMemSize != aMemBefore)
+		pvzu::hd::NoteTextureBytes(mTexMemSize - aMemBefore, aTwin != nullptr); // PVZU: -pvzu-log-hd
+	pvzu::hd::UploadDone(aTwin); // PVZU: frees the HD pixels
 
 	mWidth  = theImage->mWidth;
 	mHeight = theImage->mHeight;
@@ -767,10 +893,10 @@ void TextureData::CheckCreateTextures(MemoryImage *theImage)
 		|| (theImage->mRenderFlags & RenderImageFlag_TextureMask) != mImageFlags)
 	{
 		CreateTextures(theImage);
-		if (theImage->mPurgeBits)
+		if (theImage->mPurgeBits && mHdScale == 1) // PVZU: an HD texture cannot give the bits back (RecoverBits)
 			theImage->PurgeBits();
 	}
-	else if (theImage->mPurgeBits && theImage->mBits != nullptr)
+	else if (theImage->mPurgeBits && theImage->mBits != nullptr && mHdScale == 1) // PVZU
 		theImage->PurgeBits();
 }
 
@@ -791,7 +917,8 @@ GLuint& TextureData::GetTexture(int x, int y, int &width, int &height,
 	u2 = (float)right / p.mWidth;  v2 = (float)bottom / p.mHeight;
 
 	// Half-texel inset for shader UV clamping; midpoint fallback guarantees min <= max.
-	float halfU = 0.5f / p.mWidth, halfV = 0.5f / p.mHeight;
+	// PVZU: half a texel of the texture actually uploaded (an HD twin has mHdScale texels per logical pixel).
+	float halfU = 0.5f / (p.mWidth * mHdScale), halfV = 0.5f / (p.mHeight * mHdScale);
 	float midU = (u1 + u2) * 0.5f, midV = (v1 + v2) * 0.5f;
 	uvBounds[0] = std::min(u1 + halfU, midU);  uvBounds[1] = std::min(v1 + halfV, midV);
 	uvBounds[2] = std::max(u2 - halfU, midU);  uvBounds[3] = std::max(v2 - halfV, midV);
@@ -815,24 +942,29 @@ GLuint& TextureData::GetTextureF(float x, float y, float &width, float &height,
 	u1 = left   / p.mWidth;  v1 = top    / p.mHeight;
 	u2 = right  / p.mWidth;  v2 = bottom / p.mHeight;
 
-	float halfU = 0.5f / p.mWidth, halfV = 0.5f / p.mHeight;
+	float halfU = 0.5f / (p.mWidth * mHdScale), halfV = 0.5f / (p.mHeight * mHdScale); // PVZU: HD texel
 	float midU = (u1 + u2) * 0.5f, midV = (v1 + v2) * 0.5f;
 	uvBounds[0] = std::min(u1 + halfU, midU);  uvBounds[1] = std::min(v1 + halfV, midV);
 	uvBounds[2] = std::max(u2 - halfU, midU);  uvBounds[3] = std::max(v2 - halfV, midV);
 	return p.mTexture;
 }
 
+static bool gPvzuSmoothUpscale = false; // PVZU: linear filtering at uneven screen scales (see pvzu::ShouldSmoothUpscale)
+
 static void SetLinearFilter(bool linear)
 {
-	gLinearFilter = linear;
+	gLinearFilter = linear || gPvzuSmoothUpscale || gPvzuWorldOn; // PVZU: the zoomed board is never a whole-pixel scale
 }
 
 static constexpr float kDefaultUvBounds[4] = { 0.f, 0.f, 1.f, 1.f };
 
-static void GfxBindTexture(GLuint tex, const float *uvBounds = kDefaultUvBounds, bool clampUv = true)
+// PVZU: theHd = an HD twin's texture (Mod/Engine/HdTextures.h): its texels never line up with screen pixels, so it is
+// always sampled linearly, through its mipmaps when it has them.
+static void GfxBindTexture(GLuint tex, const float *uvBounds = kDefaultUvBounds, bool clampUv = true, bool theHd = false, bool theMip = false)
 {
 	gDrawState.texture = tex;
-	gDrawState.filter = gLinearFilter ? GL_LINEAR : GL_NEAREST;
+	gDrawState.filter = (gLinearFilter || theHd) ? GL_LINEAR : GL_NEAREST;
+	gDrawState.mip = theHd && theMip ? 1 : 0;
 	gDrawState.clampUv = clampUv ? 1 : 0;
 	memcpy(gDrawState.uvBounds, uvBounds, sizeof(gDrawState.uvBounds));
 }
@@ -871,7 +1003,7 @@ void TextureData::Blt(float theX, float theY, const Rect& theSrcRect, const Colo
 				{ x + w, y,     0, aColor, u2, v1 },
 				{ x + w, y + h, 0, aColor, u2, v2 },
 			};
-			GfxBindTexture(tex, uvb);
+			GfxBindTexture(tex, uvb, true, mHdScale > 1, mHdMip); // PVZU: HD
 			GfxBegin(GL_TRIANGLE_STRIP);
 			GfxAddVertices(v, 4);
 			GfxEnd();
@@ -1039,7 +1171,7 @@ void TextureData::BltTransformed(const SexyMatrix3 &theTrans, const Rect& theSrc
 				{ tp[2].x, tp[2].y, 0, aColor, u2, v1 },
 				{ tp[3].x, tp[3].y, 0, aColor, u2, v2 },
 			};
-			GfxBindTexture(tex, uvb);
+			GfxBindTexture(tex, uvb, true, mHdScale > 1, mHdMip); // PVZU: HD
 
 			if (!clipped)
 			{
@@ -1069,8 +1201,8 @@ void TextureData::BltTriangles(const TriVertex theVertices[][3], int theNumTrian
 	{
 		// Single-texture fast path
 		TextureDataPiece& piece = mTextures[0];
-		float halfU = 0.5f / piece.mWidth;
-		float halfV = 0.5f / piece.mHeight;
+		float halfU = 0.5f / (piece.mWidth * mHdScale); // PVZU: HD texel
+		float halfV = 0.5f / (piece.mHeight * mHdScale);
 		float midU = mMaxTotalU * 0.5f;
 		float midV = mMaxTotalV * 0.5f;
 		float uvb[4] = {
@@ -1080,7 +1212,7 @@ void TextureData::BltTriangles(const TriVertex theVertices[][3], int theNumTrian
 			std::max(mMaxTotalV - halfV, midV)
 		};
 		glActiveTexture(GL_TEXTURE0);
-		GfxBindTexture(piece.mTexture, uvb, clampUv);
+		GfxBindTexture(piece.mTexture, uvb, clampUv, mHdScale > 1, mHdMip); // PVZU: HD
 
 		GfxBegin(GL_TRIANGLES);
 		GfxAddVertices(theVertices, theNumTriangles, theColor, tx, ty, mMaxTotalU, mMaxTotalV, theDrawModes);
@@ -1119,8 +1251,8 @@ void TextureData::BltTriangles(const TriVertex theVertices[][3], int theNumTrian
 			for (int j = aLeft; j < aRight; j++)
 			{
 				TextureDataPiece &piece = mTextures[i * mTexVecWidth + j];
-				float halfU = 0.5f / piece.mWidth;
-				float halfV = 0.5f / piece.mHeight;
+				float halfU = 0.5f / (piece.mWidth * mHdScale); // PVZU: HD texel
+				float halfV = 0.5f / (piece.mHeight * mHdScale);
 				float uvb[4] = {
 					std::min(halfU, 0.5f),
 					std::min(halfV, 0.5f),
@@ -1143,7 +1275,7 @@ void TextureData::BltTriangles(const TriVertex theVertices[][3], int theNumTrian
 					if (theDrawModes != nullptr && theDrawModes[tri] == Graphics::DRAWMODE_ADDITIVE)
 						for (int k = 0; k < (int)vl.size(); k++)
 							vl[k].sz = 1.0f;
-					GfxBindTexture(piece.mTexture, uvb, clampUv);
+					GfxBindTexture(piece.mTexture, uvb, clampUv, mHdScale > 1, mHdMip); // PVZU: HD
 					GfxBegin(GL_TRIANGLE_FAN);
 					GfxAddVertices(vl);
 					GfxEnd();
@@ -1239,21 +1371,14 @@ void GLInterface::UpdateViewport()
 	if (windowWidth <= 0 || windowHeight <= 0)
 		return;
 
-	vw = width; vh = height;
-
-	// Letterbox to 4:3
-	if (width * 3 > height * 4)
-	{
-		vw = height * 4 / 3;
-		vx = (width - vw) / 2;
-	}
-	else if (width * 3 < height * 4)
-	{
-		vh = width * 3 / 4;
-		vy = (height - vh) / 2;
-	}
+	// PVZU: letterbox to the app's logical aspect (W x 600) instead of a fixed 4:3; same math at 800 x 600.
+	pvzu::Viewport aView = pvzu::ComputeViewport(width, height, mApp->mWidth, mApp->mHeight);
+	vx = aView.x; vy = aView.y; vw = aView.w; vh = aView.h;
 
 	glViewport(vx, vy, vw, vh);
+	gPvzuSmoothUpscale = pvzu::ShouldSmoothUpscale(vh, mApp->mHeight); // PVZU
+	gPvzuViewport[0] = vx; gPvzuViewport[1] = vy; gPvzuViewport[2] = vw; gPvzuViewport[3] = vh; // PVZU: for -pvzu-shot
+	pvzu::engine::UpdateSafeInsets(mApp); // PVZU: camera hole / rounded corners move the edge UI inwards
 	mPresentationRect = Rect(
 		windowWidth * vx / width,
 		windowHeight * vy / height,
@@ -1261,12 +1386,95 @@ void GLInterface::UpdateViewport()
 		windowHeight * vh / height);
 }
 
+// PVZU: HD twins for procedurally drawn images (reanim caches: seed packet plants, almanac zombies, mowers). The same
+// drawing the game does into a MemoryImage, done by the GPU into an offscreen texture theScale times larger, read
+// back as straight-alpha ARGB (top row first). Colour is accumulated premultiplied (alpha blends as "over") and
+// divided out after the read.
+
+bool GLInterface::PvzuRenderToBits(int theW, int theH, int theScale, const std::function<void(Graphics*)>& theDraw, std::vector<uint32_t>& theOut)
+{
+	const int W = theW * theScale, H = theH * theScale;
+	if (theW <= 0 || theH <= 0 || W > MAX_TEXTURE_SIZE || H > MAX_TEXTURE_SIZE || mScreenImage == nullptr)
+		return false;
+	GfxFlush();
+
+	GLint aOldFbo = 0, aOldViewport[4] = {};
+	glGetIntegerv(GL_FRAMEBUFFER_BINDING, &aOldFbo);
+	glGetIntegerv(GL_VIEWPORT, aOldViewport);
+	GLuint aTex = 0, aFbo = 0;
+	glGenTextures(1, &aTex);
+	glBindTexture(GL_TEXTURE_2D, aTex);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, W, H, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glGenFramebuffers(1, &aFbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, aFbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, aTex, 0);
+	bool ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+	if (ok)
+	{
+		const bool aWorldOn = gPvzuWorldOn;
+		const float aWorld[3] = {gPvzuWorld[0], gPvzuWorld[1], gPvzuWorld[2]};
+		gPvzuWorldOn = false;
+		gPvzuOffscreen = true;
+		gAppliedStateValid = false;
+		gAppliedTextureValid = false;
+
+		glViewport(0, 0, W, H);
+		glClearColor(0, 0, 0, 0);
+		glClear(GL_COLOR_BUFFER_BIT);
+		glClearColor(0, 0, 0, 1);
+		float aOrtho[16];
+		MakeOrthoMatrix(0, (float)theW, 0, (float)theH, -10, 10, aOrtho); // y down, row 0 = the image's top
+		glUniformMatrix4fv(gUfViewProjMtx, 1, GL_FALSE, aOrtho);
+		{
+			Graphics g(mScreenImage.get());
+			g.ClipRect(0, 0, theW, theH);
+			theDraw(&g);
+		}
+		GfxFlush();
+
+		std::vector<uint8_t> aRgba(static_cast<size_t>(W) * H * 4);
+		glPixelStorei(GL_PACK_ALIGNMENT, 1);
+		glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, aRgba.data());
+		theOut.resize(static_cast<size_t>(W) * H);
+		for (size_t i = 0; i < theOut.size(); i++)
+		{
+			const uint8_t* p = &aRgba[i * 4];
+			const uint32_t a = p[3];
+			if (a == 0)
+			{
+				theOut[i] = 0;
+				continue;
+			}
+			auto un = [a](uint32_t c) { return std::min<uint32_t>(255, (c * 255 + a / 2) / a); };
+			theOut[i] = (a << 24) | (un(p[0]) << 16) | (un(p[1]) << 8) | un(p[2]);
+		}
+
+		gPvzuOffscreen = false;
+		gPvzuWorldOn = aWorldOn;
+		gPvzuWorld[0] = aWorld[0]; gPvzuWorld[1] = aWorld[1]; gPvzuWorld[2] = aWorld[2];
+		MakeOrthoMatrix(0, (float)mWidth, (float)mHeight, 0, -10, 10, aOrtho);
+		glUniformMatrix4fv(gUfViewProjMtx, 1, GL_FALSE, aOrtho);
+	}
+	glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)aOldFbo);
+	glViewport(aOldViewport[0], aOldViewport[1], aOldViewport[2], aOldViewport[3]);
+	glDeleteFramebuffers(1, &aFbo);
+	glDeleteTextures(1, &aTex);
+	gAppliedStateValid = false;
+	gAppliedTextureValid = false;
+	return ok;
+}
+
+static void PvzuBackdropForget(); // PVZU: side fill, below
+
 int GLInterface::Init(bool IsWindowed)
 {
 	GfxFlush();
 	PlatformGLInit();
 
 	gProgram = shaderLoad(SHADER_CODE);
+	PvzuBackdropForget(); // PVZU: side fill objects belonged to the previous context, if any
 	if (gProgram == 0)
 		return 0;
 	gUfViewProjMtx = glGetUniformLocation(gProgram, "u_viewProj");
@@ -1358,9 +1566,284 @@ bool GLInterface::PreDraw()
 	return true;
 }
 
+// PVZU: fill the sides of an 800-wide screen on a wider display with a blurred backdrop of the screen itself
+// (spec item 5; 2026-11-23: the old stretched edge strips "look made from multiple lines"). Each frame: copy the
+// finished centred screen, halve it down to <= 100 px wide (2x2 averages), blur that both ways twice (Gaussian,
+// Mod/SideFill.h), grade it greyer, and draw it over each side mirrored at the seam, darker away from the screen (a
+// soft edge). Works on the finished frame, so every 800 screen gets it for free; draws only on the sides.
+static constexpr const char *PVZU_BACKDROP_SHADER = R"DELIMITER(
+V2F vec2 v_uv;
+#ifdef VERTEX
+	VERT_IN vec3 a_position;
+	VERT_IN vec4 a_color;
+	VERT_IN vec2 a_uv;
+	void main() {
+		v_uv = a_uv;
+		gl_Position = vec4(a_position.xy, 0.0, 1.0);
+	}
+#endif
+#ifdef FRAGMENT
+	uniform sampler2D u_texture;
+	uniform vec2 u_step;
+	uniform vec3 u_offset;
+	uniform vec3 u_weight;
+	uniform float u_saturation;
+	void main() {
+		vec3 c = TEX2D(u_texture, v_uv).rgb * u_weight.x
+			+ (TEX2D(u_texture, v_uv + u_step * u_offset.y).rgb + TEX2D(u_texture, v_uv - u_step * u_offset.y).rgb) * u_weight.y
+			+ (TEX2D(u_texture, v_uv + u_step * u_offset.z).rgb + TEX2D(u_texture, v_uv - u_step * u_offset.z).rgb) * u_weight.z;
+		float l = dot(c, vec3(0.299, 0.587, 0.114));
+		FRAG_OUT = vec4(mix(vec3(l), c, u_saturation), 1.0);
+	}
+#endif
+)DELIMITER";
+
+struct PvzuBackdrop
+{
+	bool failed = false;
+	GLuint prog = 0;
+	GLint uStep = -1, uOffset = -1, uWeight = -1, uSaturation = -1, uTex = -1;
+	int copyW = 0, copyH = 0;
+	GLuint copyTex = 0;
+	std::vector<pvzu::SideFillSize> sizes; // the halving steps, then the blur's second texture at the last size
+	std::vector<GLuint> tex, fbo;
+};
+static PvzuBackdrop gPvzuBackdrop;
+static void PvzuBackdropForget() { gPvzuBackdrop = {}; }
+
+static void PvzuBackdropFree()
+{
+	PvzuBackdrop& b = gPvzuBackdrop;
+	if (!b.fbo.empty())
+		glDeleteFramebuffers(static_cast<GLsizei>(b.fbo.size()), b.fbo.data());
+	if (!b.tex.empty())
+		glDeleteTextures(static_cast<GLsizei>(b.tex.size()), b.tex.data());
+	if (b.copyTex != 0)
+		glDeleteTextures(1, &b.copyTex);
+	b.fbo.clear();
+	b.tex.clear();
+	b.sizes.clear();
+	b.copyTex = 0;
+	b.copyW = b.copyH = 0;
+}
+
+static void PvzuBackdropTexture(GLuint theTex, GLenum theFormat, int theW, int theH)
+{
+	glBindTexture(GL_TEXTURE_2D, theTex);
+	glTexImage2D(GL_TEXTURE_2D, 0, theFormat, theW, theH, 0, theFormat, GL_UNSIGNED_BYTE, nullptr);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+}
+
+// Program and textures for a copy of theW x theH pixels; false if this GPU can't (the sides then stay black).
+static bool PvzuBackdropReady(int theW, int theH)
+{
+	PvzuBackdrop& b = gPvzuBackdrop;
+	if (b.failed)
+		return false;
+	if (b.prog == 0)
+	{
+		b.prog = shaderLoad(PVZU_BACKDROP_SHADER);
+		if (b.prog == 0)
+		{
+			b.failed = true;
+			return false;
+		}
+		b.uTex = glGetUniformLocation(b.prog, "u_texture");
+		b.uStep = glGetUniformLocation(b.prog, "u_step");
+		b.uOffset = glGetUniformLocation(b.prog, "u_offset");
+		b.uWeight = glGetUniformLocation(b.prog, "u_weight");
+		b.uSaturation = glGetUniformLocation(b.prog, "u_saturation");
+		glUseProgram(b.prog);
+		glUniform1i(b.uTex, 0);
+		glUseProgram(gProgram);
+	}
+	if (b.copyW == theW && b.copyH == theH)
+		return true;
+	PvzuBackdropFree();
+	b.copyW = theW;
+	b.copyH = theH;
+	glGenTextures(1, &b.copyTex);
+	PvzuBackdropTexture(b.copyTex, GL_RGB, theW, theH); // the back buffer may have no alpha
+	b.sizes = pvzu::SideFillShrinkChain(theW, theH, 100);
+	if (b.sizes.empty()) // already small: one plain copy, so the blur never writes the texture it reads
+		b.sizes.push_back({theW, theH});
+	b.sizes.push_back(b.sizes.back());
+	b.tex.resize(b.sizes.size());
+	b.fbo.resize(b.sizes.size());
+	glGenTextures(static_cast<GLsizei>(b.tex.size()), b.tex.data());
+	glGenFramebuffers(static_cast<GLsizei>(b.fbo.size()), b.fbo.data());
+	GLint aOldFbo = 0;
+	glGetIntegerv(GL_FRAMEBUFFER_BINDING, &aOldFbo);
+	bool ok = true;
+	for (size_t i = 0; i < b.tex.size(); ++i)
+	{
+		PvzuBackdropTexture(b.tex[i], GL_RGBA, b.sizes[i].w, b.sizes[i].h);
+		glBindFramebuffer(GL_FRAMEBUFFER, b.fbo[i]);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, b.tex[i], 0);
+		ok = ok && glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+	}
+	glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(aOldFbo));
+	gAppliedTextureValid = false;
+	if (!ok)
+	{
+		PvzuBackdropFree();
+		b.failed = true;
+	}
+	return ok;
+}
+
+// One full-texture pass of the backdrop program from theSrc into texture/fbo theDst.
+static void PvzuBackdropPass(GLuint theSrc, size_t theDst, float theStepX, float theStepY,
+	const pvzu::SideFillBlurTaps& theTaps, float theSaturation)
+{
+	const PvzuBackdrop& b = gPvzuBackdrop;
+	glBindFramebuffer(GL_FRAMEBUFFER, b.fbo[theDst]);
+	glViewport(0, 0, b.sizes[theDst].w, b.sizes[theDst].h);
+	glBindTexture(GL_TEXTURE_2D, theSrc);
+	glUniform2f(b.uStep, theStepX, theStepY);
+	glUniform3f(b.uOffset, theTaps.offset[0], theTaps.offset[1], theTaps.offset[2]);
+	glUniform3f(b.uWeight, theTaps.weight[0], theTaps.weight[1], theTaps.weight[2]);
+	glUniform1f(b.uSaturation, theSaturation);
+	const GLVertex v[4] = {
+		{ -1.f, -1.f, 0, 0xFFFFFFFFu, 0.f, 0.f },
+		{ -1.f,  1.f, 0, 0xFFFFFFFFu, 0.f, 1.f },
+		{  1.f, -1.f, 0, 0xFFFFFFFFu, 1.f, 0.f },
+		{  1.f,  1.f, 0, 0xFFFFFFFFu, 1.f, 1.f },
+	};
+	glBufferData(GL_ARRAY_BUFFER, sizeof(v), v, GL_DYNAMIC_DRAW);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+// The blurred, greyed centred screen in texture PvzuBackdropResult() (rows bottom-up, like the back buffer).
+static size_t PvzuBackdropResult() { return gPvzuBackdrop.sizes.size() - 2; }
+
+static bool PvzuBackdropBuild(int thePx, int thePy, int thePw, int thePh)
+{
+	if (!PvzuBackdropReady(thePw, thePh))
+		return false;
+	PvzuBackdrop& b = gPvzuBackdrop;
+	GLint aOldFbo = 0;
+	glGetIntegerv(GL_FRAMEBUFFER_BINDING, &aOldFbo);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, b.copyTex);
+	glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, thePx, thePy, thePw, thePh);
+
+	glDisable(GL_BLEND);
+	glUseProgram(b.prog);
+	glBindBuffer(GL_ARRAY_BUFFER, gVbo);
+	pvzu::SideFillBlurTaps aCopy;
+	aCopy.weight[0] = 1.0f;
+	GLuint aSrc = b.copyTex;
+	const size_t aMain = PvzuBackdropResult(), aSpare = aMain + 1;
+	for (size_t i = 0; i <= aMain; ++i) // halve (a linear read halfway between 2x2 texels averages them)
+	{
+		PvzuBackdropPass(aSrc, i, 0.f, 0.f, aCopy, 1.f);
+		aSrc = b.tex[i];
+	}
+	const pvzu::SideFillBlurTaps aTaps = pvzu::SideFillBlurTapsFor(pvzu::SideFillBlurSigma(b.sizes[aMain].w));
+	const float sx = 1.f / static_cast<float>(b.sizes[aMain].w), sy = 1.f / static_cast<float>(b.sizes[aMain].h);
+	constexpr int kRounds = 2;
+	for (int r = 0; r < kRounds; ++r)
+	{
+		PvzuBackdropPass(b.tex[aMain], aSpare, sx, 0.f, aTaps, 1.f);
+		PvzuBackdropPass(b.tex[aSpare], aMain, 0.f, sy, aTaps, r == kRounds - 1 ? pvzu::kSideFillSaturation : 1.f);
+	}
+	glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(aOldFbo));
+	glUseProgram(gProgram);
+	glEnable(GL_BLEND);
+	gAppliedStateValid = false;
+	gAppliedTextureValid = false;
+	return true;
+}
+
+static void PvzuDrawSideFill(int theLogicalW, int theLogicalH)
+{
+	const pvzu::SideFillPlan aPlan = pvzu::PlanSideFill(theLogicalW);
+	const int vx = gPvzuViewport[0], vy = gPvzuViewport[1], vw = gPvzuViewport[2], vh = gPvzuViewport[3];
+	if (!aPlan.active || vw <= 0 || vh <= 0)
+		return;
+	GfxFlush();
+	const int px = vx + aPlan.left.dstW * vw / theLogicalW;
+	const int pw = std::max(1, 800 * vw / theLogicalW);
+	const bool ok = PvzuBackdropBuild(px, vy, pw, vh);
+	glViewport(vx, vy, vw, vh);
+	if (!ok)
+		return;
+
+	const GfxDrawState aOldState = gDrawState;
+	const bool aOldLinear = gLinearFilter, aOldWorldOn = gPvzuWorldOn;
+	gPvzuWorldOn = false;
+	gLinearFilter = true;
+	gDrawState.useTexture = 1;
+	gDrawState.mixedBlend = 0;
+	SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	const float kUv[4] = {0.f, 0.f, 1.f, 1.f};
+	GfxBindTexture(gPvzuBackdrop.tex[PvzuBackdropResult()], kUv, true);
+	const float h = static_cast<float>(theLogicalH);
+	for (const bool aLeft : {true, false})
+	{
+		const pvzu::SideFillPart& s = aLeft ? aPlan.left : aPlan.right;
+		if (s.dstW <= 0)
+			continue;
+		const float x0 = static_cast<float>(s.dstX), x1 = static_cast<float>(s.dstX + s.dstW);
+		const float aSeam = aLeft ? x1 : x0;
+		const float aFeather = std::min(pvzu::kSideFillFeatherPx, x1 - x0);
+		const float xs[3] = { x0, aLeft ? x1 - aFeather : x0 + aFeather, x1 }; // the shade is flat beyond the feather
+		GLVertex v[6];
+		for (int i = 0; i < 3; ++i)
+		{
+			const float x = xs[i];
+			const float u = s.uAtDstX + (s.uAtDstEnd - s.uAtDstX) * (x - x0) / (x1 - x0);
+			const int g = static_cast<int>(pvzu::SideFillShade(std::fabs(x - aSeam)) * 255.0f + 0.5f);
+			const uint32_t c = Color(g, g, g, 255).ToGLColor();
+			v[2 * i] = { x, 0.f, 0, c, u, 1.f }; // texture rows are bottom-up
+			v[2 * i + 1] = { x, h, 0, c, u, 0.f };
+		}
+		GfxBegin(GL_TRIANGLE_STRIP);
+		GfxAddVertices(v, 6);
+		GfxEnd();
+	}
+	GfxFlush();
+	gPvzuWorldOn = aOldWorldOn;
+	gLinearFilter = aOldLinear;
+	gDrawState = aOldState;
+}
+
+// PVZU: -pvzu-dev-sidefill-time: GPU+CPU time of the side fill (glFinish either side), average every 300 frames.
+static void PvzuDrawSideFillTimed(int theLogicalW, int theLogicalH)
+{
+	static const bool aTimed = pvzu::CmdFlag("-pvzu-dev-sidefill-time");
+	if (!aTimed)
+	{
+		PvzuDrawSideFill(theLogicalW, theLogicalH);
+		return;
+	}
+	static double aTotalMs = 0.0;
+	static int aFrames = 0;
+	GfxFlush();
+	glFinish();
+	const Uint64 t0 = SDL_GetPerformanceCounter();
+	PvzuDrawSideFill(theLogicalW, theLogicalH);
+	glFinish();
+	aTotalMs += 1000.0 * static_cast<double>(SDL_GetPerformanceCounter() - t0) / static_cast<double>(SDL_GetPerformanceFrequency());
+	if (++aFrames == 300)
+	{
+		std::fprintf(stderr, "PVZU sidefill: %.3f ms/frame over %d frames (viewport %dx%d)\n", aTotalMs / aFrames, aFrames,
+			gPvzuViewport[2], gPvzuViewport[3]);
+		aTotalMs = 0.0;
+		aFrames = 0;
+	}
+}
+
 void GLInterface::Flush()
 {
 	GfxFlush();
+	if (pvzu::engine::SideFillWanted()) // PVZU: no black bars beside 800-wide screens
+		PvzuDrawSideFillTimed(mWidth, mHeight);
+	pvzu::engine::DebugRunAfterDraw(mApp, gPvzuViewport[0], gPvzuViewport[1], gPvzuViewport[2], gPvzuViewport[3]); // PVZU: -pvzu-shot
 #ifdef __SWITCH__
 	eglSwapBuffers(mApp->mWindow, mApp->mSurface);
 #else
@@ -1396,6 +1879,7 @@ bool GLInterface::RecoverBits(MemoryImage* theImage)
 	TextureData* data = theImage->mRenderData;
 	if (data->mBitsChangedCount != theImage->mBitsChangedCount) return false;
 	if (data->mPixelFormat != PixelFormat_A8R8G8B8 && !theImage->mFilePath.empty()) return false;
+	if (data->mHdScale != 1) return false; // PVZU: HD texels are not the image's bits
 
 	for (int row = 0; row < data->mTexVecHeight; row++)
 	{

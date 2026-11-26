@@ -19,7 +19,11 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "Mod/CmdLine.h" // PVZU
+#include "Mod/Engine/OptionsPanel.h" // PVZU
+#include "Mod/TitleSkip.h" // PVZU
 #include "TitleScreen.h"
+#include "Mod/Engine/DevHarness.h" // PVZU
 #include "widget/HyperlinkWidget.h"
 #include "widget/WidgetManager.h"
 #include "graphics/ImageFont.h"
@@ -34,6 +38,10 @@
 #include "../../PvzpLib/Reanimator.h"
 #include "../../GameConstants.h"
 #include "../System/Music.h"
+#include "Mod/Engine/DevLevels.h" // PVZU
+#include "Mod/Engine/ModesVanilla.h" // PVZU
+#include "Mod/Engine/WideScreen.h" // PVZU: title centred on the wide screen
+#include "Mod/TitleLayout.h" // PVZU
 #include <algorithm>
 
 TitleScreen::TitleScreen(LawnApp* theApp)
@@ -173,7 +181,7 @@ void TitleScreen::Draw(Graphics* g)
 	}
 	g->DrawImage(IMAGE_PVZ_LOGO, mWidth / 2 - IMAGE_PVZ_LOGO->mWidth / 2, aLogoY);
 
-	int aGrassX = mStartButton->mX;
+	int aGrassX = mStartButton->mX - mX; // PVZU: the button is in screen coordinates, the bar in the title's (vanilla x 0)
 	int aGrassY = mStartButton->mY - 17;
 
 	//Sexy::LogInfoLn("{} {}\n", aGrassX, aGrassY);
@@ -198,7 +206,8 @@ void TitleScreen::Draw(Graphics* g)
 		float aRotation = -aRollLen / 180 * PI * 2;
 		float aScale = PvzpAnimateCurveFloatTime(0, mTotalBarWidth, mCurBarWidth, 1, 0.5f, PvzpCurves::CURVE_LINEAR);
 		SexyTransform2D aTransform;
-		PvzpScaleRotateTransformMatrix(aTransform, aGrassX + 11.0f + aRollLen, aGrassY - 3.0f - 35.0f * aScale + 35.0f, aRotation, aScale, aScale);
+		PvzpScaleRotateTransformMatrix(aTransform, pvzu::TitleRollCapScreenX(aGrassX, aRollLen, g->mTransX), // PVZU: matrix is in screen coordinates
+			g->mTransY + aGrassY - 3.0f - 35.0f * aScale + 35.0f, aRotation, aScale, aScale);
 		Rect aSrcRect(0, 0, IMAGE_REANIM_SODROLLCAP->mWidth, IMAGE_REANIM_SODROLLCAP->mHeight);
 		PvzpBltMatrix(g, IMAGE_REANIM_SODROLLCAP, aTransform, g->mClipRect, Color::White, g->mDrawMode, aSrcRect);
 	}
@@ -298,7 +307,7 @@ void TitleScreen::Update()
 
 		mStartButton->mLabel = PvzpStringTranslate("[LOADING]");
 		mStartButton->SetFont(FONT_BRIANNETOD16);
-		mStartButton->Resize((mWidth - IMAGE_LOADBAR_DIRT->mWidth) / 2, 650, mTotalBarWidth, 50);
+		mStartButton->Resize(pvzu::PlaceTitle(pvzu::engine::ScreenWidth(), mX, mWidth, IMAGE_LOADBAR_DIRT->mWidth).buttonScreenX, 650, mTotalBarWidth, 50); // PVZU: centred with the title (vanilla (mWidth - dirt) / 2)
 		mStartButton->mVisible = true;
 
 		float aEstimatedTotalLoadTime;
@@ -388,7 +397,13 @@ void TitleScreen::Update()
 		mLoadingThreadComplete = true;
 		mStartButton->SetDisabled(false);
 
-		if (mQuickLoadKey == KeyCode::KEYCODE_ASCIIEND)
+		if (pvzu::engine::DevStartLevel(mApp) || pvzu::engine::ModesDevStart(mApp)) // PVZU: -pvzu-level / -pvzu-dev-mode dev start
+		{
+		}
+		else if (pvzu::engine::DevStartScreen(mApp)) // PVZU: -pvzu-dev-screen store|almanac|zen|options
+		{
+		}
+		else if (mQuickLoadKey == KeyCode::KEYCODE_ASCIIEND)
 		{
 			mApp->FastLoad(GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN);
 		}
@@ -435,6 +450,16 @@ void TitleScreen::Update()
 		else if (mApp->mCheatKeys && mApp->mPlayerInfo && mQuickLoadKey == (KeyCode)0x54)
 		{
 			mApp->FastLoad(GameMode::GAMEMODE_ADVENTURE);
+		}
+		else if (pvzu::ShouldSkipTitleScreen( // PVZU: phones go straight to the main menu
+#if defined(__ANDROID__) || defined(__IPHONEOS__)
+			true,
+#else
+			false,
+#endif
+			mApp->mPlayingDemoBuffer, pvzu::CmdFlag("-pvzu-skip-title")))
+		{
+			mApp->LoadingCompleted();
 		}
 		else
 		{
@@ -495,6 +520,8 @@ void TitleScreen::Update()
 void TitleScreen::Resize(int theX, int theY, int theWidth, int theHeight)
 {
 	Widget::Resize(theX, theY, theWidth, theHeight);
+	const pvzu::TitlePlace aPlace = pvzu::PlaceTitle(pvzu::engine::ScreenWidth(), theX, theWidth, 0); // PVZU: a click on the side fill starts too
+	mMouseInsets = Insets(aPlace.mouseInsetLeft, 0, aPlace.mouseInsetRight, 0);
 }
 
 void TitleScreen::AddedToManager(Sexy::WidgetManager* theWidgetManager)

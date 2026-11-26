@@ -49,6 +49,7 @@ protected:
 		NewOptionsDialog_SoundVolume,
 		NewOptionsDialog_Fullscreen,
 		NewOptionsDialog_HardwareAcceleration,
+		NewOptionsDialog_ImportUnnamed, // PVZU: "Import Unnamed ZIP" (Mod/Engine/ZipImport.h)
 	};
 
 public:
@@ -60,6 +61,7 @@ public:
 	std::unique_ptr<LawnStoneButton>	mAlmanacButton;
 	std::unique_ptr<LawnStoneButton>	mBackToMainButton;
 	std::unique_ptr<LawnStoneButton>	mRestartButton;
+	std::unique_ptr<LawnStoneButton>	mImportUnnamedButton; // PVZU
 	std::unique_ptr<NewLawnButton>		mBackToGameButton;
 	bool								mFromGameSelector;
 
@@ -77,6 +79,7 @@ public:
 	void					ButtonPress(int theId) override;
 	void					ButtonDepress(int theId) override;
 	void					KeyDown(Sexy::KeyCode theKey) override;
+	void					Update() override; // PVZU: the Unnamed zip picker's result
 };
 
 #endif
